@@ -592,17 +592,15 @@ local BallSenderTracking          = {}
 
 local ManualSpamEnabled           = false
 local ManualSpamActive            = false
-local ManualSpamKey               = Enum.KeyCode.C
+local ManualSpamKey               = Enum.KeyCode.Q
 local ManualSpamWait              = 0.05
 local ManualSpamConnection        = nil
-local ManualSpamNotifications     = true
 
 -- ✓ AUTO SPAM PARRY COUNTERS - CONNECTED TO BOTH LOBBY AP AND AUTO PARRY
 local LobbyCloseRangeCounter = 0
 local AutoParryCloseRangeCounter = 0
 local CLOSE_RANGE_THRESHOLD = 25
-local MAX_CLOSE_RANGE_ATTEMPTS = 2
-local ProximityTriggerDistance = 30
+local MAX_CLOSE_RANGE_ATTEMPTS = 3
 local CurrentBallId = nil
 
 local soundOptions = {
@@ -898,6 +896,7 @@ local isMobile = UserInputService.TouchEnabled and not UserInputService.MouseEna
 AutoParry.Parry_Data = function(Parry_Type)
 	if not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then return nil end
 	
+	-- Normalize the parry type (handle case differences)
 	if Parry_Type then
 		Parry_Type = tostring(Parry_Type):lower()
 		if Parry_Type == "camera" then Parry_Type = "Camera" 
@@ -964,31 +963,45 @@ AutoParry.Parry_Data = function(Parry_Type)
 	if Parry_Type == 'Left'  then local v = Camera.CFrame.RightVector * 10000; return {0, CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position - v), Events, Vector2_Mouse_Location} end
 	if Parry_Type == 'Right' then local v = Camera.CFrame.RightVector * 10000; return {0, CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + v), Events, Vector2_Mouse_Location} end
 	
+	-- Fallback to Camera if no match (shouldn't happen, but safety)
+	print("[PARRY_DATA] Unknown Parry_Type: " .. tostring(Parry_Type) .. " - defaulting to Camera")
 	return {0, Camera.CFrame, Events, Vector2_Mouse_Location}
 end
 
 AutoParry.Parry = function(parryType)
+	-- ✓ Use SelectedParryType to get the curve direction
 	local actualParryType = parryType or SelectedParryType
+	print("[AUTO_PARRY] Parrying with type: " .. tostring(actualParryType) .. " | Has remotes: " .. tostring(next(ParryRemotes) ~= nil))
 	local parryData = AutoParry.Parry_Data(actualParryType)
-	if not parryData then return end
+	if not parryData then 
+		print("[AUTO_PARRY] ERROR: parryData is nil for type: " .. tostring(actualParryType))
+		return 
+	end
 	local hasRemotes = false
 	for remote, originalArgs in pairs(ParryRemotes) do
 		hasRemotes = true
+		-- parryData[2] contains the CFrame with curve direction
 		local mArgs = {originalArgs[1], originalArgs[2], 0, parryData[2], parryData[3], parryData[4]}
+		print("[AUTO_PARRY] Firing remote with parry type: " .. tostring(actualParryType))
 		if remote:IsA("RemoteEvent") then remote:FireServer(unpack(mArgs))
 		elseif remote:IsA("RemoteFunction") then remote:InvokeServer(unpack(mArgs)) end
 	end
-	if not hasRemotes then mouse1click() end
+	if not hasRemotes then 
+		print("[AUTO_PARRY] No remotes found, using mouse1click")
+		mouse1click() 
+	end
 	if Parries > 7 then return end
 	Parries += 1
 	task.delay(0.5, function() if Parries > 0 then Parries -= 1 end end)
 end
 
 AutoParry.PerformRemoteParry = function(parryType)
+	-- ✓ Use SelectedParryType to get the curve direction
 	local actualParryType = parryType or SelectedParryType
 	local parryData = AutoParry.Parry_Data(actualParryType)
 	if not parryData then return end
 	for remote, originalArgs in pairs(ParryRemotes) do
+		-- parryData[2] contains the CFrame with curve direction
 		local mArgs = {originalArgs[1], originalArgs[2], 0, parryData[2], parryData[3], parryData[4]}
 		if remote:IsA("RemoteEvent") then remote:FireServer(unpack(mArgs))
 		elseif remote:IsA("RemoteFunction") then remote:InvokeServer(unpack(mArgs)) end
@@ -1048,9 +1061,15 @@ end
 
 local function KeypressAPC(parryType)
 	if not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then return end
+	-- ✓ Use SelectedParryType if no parryType provided
 	local actualParryType = parryType or SelectedParryType
+	print("[KEYPRESS_APC] Starting with parry type: " .. tostring(actualParryType))
 	local parryData = AutoParry.Parry_Data(actualParryType)
-	if not parryData then return end
+	if not parryData then 
+		print("[KEYPRESS_APC] ERROR: parryData is nil!")
+		return 
+	end
+	print("[KEYPRESS_APC] Got parryData - Target should curve: " .. tostring(actualParryType))
 	local cam    = Workspace.CurrentCamera
 	local orig   = cam.CFrame
 	local rndAng = CFrame.Angles(math.rad(math.random(-5,5)), math.rad(math.random(-5,5)), math.rad(math.random(-2,2)))
@@ -1062,6 +1081,7 @@ local function KeypressAPC(parryType)
 		local elapsed = tick() - startTime
 		if elapsed >= duration then
 			conn:Disconnect()
+			print("[KEYPRESS_APC] Clicking now...")
 			SimulateParry()
 			task.wait(0.25 + math.random(-30,30)/1000)
 			local backStart = tick()
@@ -1389,6 +1409,7 @@ RunService.Heartbeat:Connect(function() Update_Ping() end)
 -- ─── AUTO SPAM PARRY - CONNECTED TO BOTH LOBBY AP AND AUTO PARRY ──────────────
 local AutoSpamParryEnabled = false
 local AutoSpamParryConnection = nil
+local ProximityTriggerDistance = 30
 local IsAutoSpamActive = false
 
 local function StartAutoSpamParry()
@@ -1417,17 +1438,21 @@ local function StartAutoSpamParry()
 			return
 		end
 
+		-- ✓ CONNECTED TO BOTH: Triggers if EITHER Lobby AP OR Auto Parry failed 3+ times
 		local totalFailures = LobbyCloseRangeCounter + AutoParryCloseRangeCounter
 		local distance = (LocalPlayer.Character.PrimaryPart.Position - ball.Position).Magnitude
 		local speed = zoomies.VectorVelocity.Magnitude
 
+		-- Activate if failed enough times AND within range
 		if ballTarget == tostring(LocalPlayer) and totalFailures >= MAX_CLOSE_RANGE_ATTEMPTS and distance <= ProximityTriggerDistance then
 			IsAutoSpamActive = true
 			
+			-- Continuous spam based on ball speed
 			if next(ParryRemotes) then
 				AutoParry.PerformRemoteParry(SelectedParryType)
 				Parries += 1
 				
+				-- Vary spam speed based on ball velocity
 				local spamDelay = 0.05
 				if speed > 700 then
 					spamDelay = 0.015
@@ -1441,10 +1466,14 @@ local function StartAutoSpamParry()
 					spamDelay = 0.04
 				end
 				
+				-- Small wait to prevent overwhelming
 				task.wait(spamDelay)
 			end
 		else
+			-- ✓ SMOOTH TRANSITION: Don't just stop, reset counters when exiting
 			if IsAutoSpamActive then
+				print("[AUTO_SPAM] Exiting spam mode - ball distance: " .. tostring(math.floor(distance)) .. " speed: " .. tostring(math.floor(speed)))
+				-- Reset counters so Auto Parry gets a fresh start
 				LobbyCloseRangeCounter = 0
 				AutoParryCloseRangeCounter = 0
 			end
@@ -1680,6 +1709,7 @@ MainTab:CreateToggle({
 							task.delay(1, function() parriedBalls[ball] = false end)
 							LastLobbyParry = Elapsed_Parry_Time
 						else
+							-- ✓ LOBBY AP FAILED - Increment lobby counter for Auto Spam Parry
 							if distance <= parryAccuracy * 1.2 then
 								LobbyCloseRangeCounter = LobbyCloseRangeCounter + 1
 							end
@@ -1854,9 +1884,19 @@ MainTab:CreateToggle({
 						AutoParry.Dot_Histories[ball]
 					)
 					
+					-- ✓ BOOST ACCURACY FOR FAST BALLS (to handle Auto Spam transitions)
+					-- When ball is very fast from Auto Spam, give Auto Parry a better chance
 					if speed > 500 then
-						local fastBallBoost = 1.0 + math.min((speed - 500) / 1000, 0.3)
+						local fastBallBoost = 1.0 + math.min((speed - 500) / 1000, 0.3)  -- Up to 30% boost
 						parryAccuracy = parryAccuracy * fastBallBoost
+						if speed > 800 then
+							print("[AUTO_PARRY] FAST BALL BOOST applied: " .. tostring(math.floor(speed)) .. " spd | accuracy boosted by " .. tostring(math.floor((fastBallBoost - 1) * 100)) .. "%")
+						end
+					end
+					
+					-- Debug: Show how accuracy setting affects parry decisions
+					if speed > 600 then
+						print("[AUTO_PARRY_CALC] Speed: " .. tostring(math.floor(speed)) .. " | Distance: " .. tostring(math.floor(distance)) .. " | ParryAccuracy: " .. tostring(math.floor(parryAccuracy)) .. " | Multiplier: " .. string.format("%.2f", Speed_Divisor_Multiplier))
 					end
 					
 					local shouldParry, decisionDistance, predictionTime = AutoParry_Improved.ShouldParryWithPrediction(
@@ -1885,15 +1925,24 @@ MainTab:CreateToggle({
 							useAbility = true; Use_Ability:Fire()
 						end
 						if not useAbility then
+							print("[AUTO_PARRY_LOOP] AutoParryType=" .. tostring(AutoParryType) .. " | SelectedParryType=" .. tostring(SelectedParryType) .. " | Has Remotes=" .. tostring(next(ParryRemotes) ~= nil))
+							
+							-- Always try Remote first if available
 							if Is_Supported_Test and next(ParryRemotes) then
+								print("[AUTO_PARRY_LOOP] Using REMOTE with curve: " .. tostring(SelectedParryType))
 								AutoParry.PerformRemoteParry(SelectedParryType)
+							-- Fallback to Keypress
 							elseif AutoParryType == "Keypress" or AutoParryType ~= "Remote" then
+								print("[AUTO_PARRY_LOOP] Using KEYPRESS with curve: " .. tostring(SelectedParryType))
 								KeypressAPC(SelectedParryType)
+							-- Last resort
 							else
+								print("[AUTO_PARRY_LOOP] Using SIMULATE with curve: " .. tostring(SelectedParryType))
 								SimulateParry()
 							end
 							Parries += 1; task.delay(0.5, function() if Parries > 0 then Parries -= 1 end end)
 							
+							-- ✓ AUTO PARRY FAILED - Increment auto parry counter for Auto Spam Parry
 							if distance <= CLOSE_RANGE_THRESHOLD then
 								AutoParryCloseRangeCounter = AutoParryCloseRangeCounter + 1
 							end
@@ -1933,12 +1982,15 @@ MainTab:CreateDropdown({
 	Flag = "ParryDirection",
 	Callback = function(v) 
 		local selectedValue
+		-- Handle both table and string returns from Rayfield
 		if v and type(v) == "table" then
 			selectedValue = v[1] or v
 		else
 			selectedValue = tostring(v)
 		end
+		
 		SelectedParryType = selectedValue
+		print("[CURVE_DIRECTION] ✓ Changed to: " .. tostring(SelectedParryType))
 	end
 })
 
@@ -1957,9 +2009,16 @@ MainTab:CreateSlider({
 	CurrentValue = 50,
 	Flag = "ParryAccuracy",
 	Callback = function(v) 
+		-- 0% = easiest (multiplier 1.5), 50% = balanced (multiplier 1.0), 100% = hardest (multiplier 0.5)
 		Speed_Divisor_Multiplier = 1.5 - (v / 100) * 1.0
+		print("[PARRY_ACCURACY] Set to " .. tostring(v) .. "% | Multiplier: " .. string.format("%.2f", Speed_Divisor_Multiplier) .. " (lower = harder)")
 	end
 })
+
+MainTab:CreateLabel("⬅ 0% = Easier | 100% = Harder ➡")
+
+MainTab:CreateLabel("Current: Parry Accuracy affects the parry window size")
+MainTab:CreateLabel("Lower % = Bigger window (forgiving)")
 
 MainTab:CreateToggle({ Name = "High Ping Compensation", CurrentValue = false, Flag = "HighPingCompensation", Callback = function(v) HighPingCompensation = v end })
 MainTab:CreateToggle({ Name = "Auto Pre-Click", CurrentValue = false, Flag = "AutoPostParry",
@@ -2024,6 +2083,44 @@ MainTab:CreateToggle({
 		else
 			StopAutoSpamParry()
 		end
+	end
+})
+
+MainTab:CreateLabel("✓ CONNECTED TO LOBBY AP & AUTO PARRY | Triggers when EITHER fails 3+ times")
+
+MainTab:CreateSlider({
+	Name = "Trigger Distance",
+	Range = {15, 50},
+	Increment = 5,
+	Suffix = " units",
+	CurrentValue = 30,
+	Flag = "ProximityDistance",
+	Callback = function(v)
+		ProximityTriggerDistance = v
+	end
+})
+
+MainTab:CreateSlider({
+	Name = "Close Range Threshold",
+	Range = {15, 35},
+	Increment = 5,
+	Suffix = " units",
+	CurrentValue = 25,
+	Flag = "CloseRangeThreshold",
+	Callback = function(v)
+		CLOSE_RANGE_THRESHOLD = v
+	end
+})
+
+MainTab:CreateSlider({
+	Name = "Max Attempts Before Spam",
+	Range = {1, 5},
+	Increment = 1,
+	Suffix = " attempts",
+	CurrentValue = 3,
+	Flag = "MaxCloseRangeAttempts",
+	Callback = function(v)
+		MAX_CLOSE_RANGE_ATTEMPTS = v
 	end
 })
 
@@ -2109,6 +2206,8 @@ MainTab:CreateToggle({
 	end
 })
 
+MainTab:CreateLabel("Triggerbot uses Auto Parry settings")
+
 -- ── Misc Tab ──────────────────────────────────────────────────────────────────
 local MiscTab = Window:CreateTab("Misc", nil)
 
@@ -2127,29 +2226,27 @@ ManualSpamTab:CreateToggle({
 				if gameProcessed then return end
 				if input.KeyCode == ManualSpamKey then
 					ManualSpamActive = not ManualSpamActive
-					if ManualSpamNotifications then
-						if ManualSpamActive then
-							Rayfield:Notify({
-								Title    = "Manual Spam",
-								Content  = "ON 🔥",
-								Duration = 1,
-								Image    = nil
-							})
-						else
-							Rayfield:Notify({
-								Title    = "Manual Spam",
-								Content  = "OFF ⏹️",
-								Duration = 1,
-								Image    = nil
-							})
-						end
+					if ManualSpamActive then
+						Rayfield:Notify({
+							Title    = "Manual Spam",
+							Content  = "Manual Spam ACTIVATED! 🔥",
+							Duration = 2,
+							Image    = nil
+						})
+						task.spawn(function()
+							while ManualSpamActive and ManualSpamEnabled do
+								DoManualSpam()
+								task.wait(ManualSpamWait)
+							end
+						end)
+					else
+						Rayfield:Notify({
+							Title    = "Manual Spam",
+							Content  = "Manual Spam DEACTIVATED! ⏹️",
+							Duration = 2,
+							Image    = nil
+						})
 					end
-					task.spawn(function()
-						while ManualSpamActive and ManualSpamEnabled do
-							DoManualSpam()
-							task.wait(ManualSpamWait)
-						end
-					end)
 				end
 			end)
 		else
@@ -2163,19 +2260,21 @@ ManualSpamTab:CreateToggle({
 })
 
 ManualSpamTab:CreateDropdown({
-	Name = "Spam Mode",
-	Options = {"Legit", "Blatant"},
-	CurrentOption = {"Legit"},
+	Name = "Toggle Keybind",
+	Options = {"Q", "E", "R", "F", "C", "V", "X", "Z", "T", "G", "B", "N", "M", "LeftShift", "LeftControl", "Space", "Tab", "CapsLock"},
+	CurrentOption = {"Q"},
 	MultipleOptions = false,
-	Flag = "ManualSpamMode",
-	Callback = function(v) SpamMode = v end
-})
-
-ManualSpamTab:CreateToggle({
-	Name = "Toggle Notifications",
-	CurrentValue = true,
-	Flag = "ManualSpamNotif",
-	Callback = function(v) ManualSpamNotifications = v end
+	Flag = "ManualSpamKeybind",
+	Callback = function(v)
+		local keyMap = {
+			["Q"] = Enum.KeyCode.Q, ["E"] = Enum.KeyCode.E, ["R"] = Enum.KeyCode.R, ["F"] = Enum.KeyCode.F,
+			["C"] = Enum.KeyCode.C, ["V"] = Enum.KeyCode.V, ["X"] = Enum.KeyCode.X, ["Z"] = Enum.KeyCode.Z,
+			["T"] = Enum.KeyCode.T, ["G"] = Enum.KeyCode.G, ["B"] = Enum.KeyCode.B, ["N"] = Enum.KeyCode.N,
+			["M"] = Enum.KeyCode.M, ["LeftShift"] = Enum.KeyCode.LeftShift, ["LeftControl"] = Enum.KeyCode.LeftControl,
+			["Space"] = Enum.KeyCode.Space, ["Tab"] = Enum.KeyCode.Tab, ["CapsLock"] = Enum.KeyCode.CapsLock
+		}
+		ManualSpamKey = keyMap[v] or Enum.KeyCode.Q
+	end
 })
 
 ManualSpamTab:CreateSlider({
@@ -2187,6 +2286,17 @@ ManualSpamTab:CreateSlider({
 	Flag = "ManualSpamSpeed",
 	Callback = function(v) ManualSpamWait = v / 1000 end
 })
+
+ManualSpamTab:CreateDropdown({
+	Name = "Manual Spam Mode",
+	Options = {"Legit", "Blatant"},
+	CurrentOption = {"Legit"},
+	MultipleOptions = false,
+	Flag = "ManualSpamMode",
+	Callback = function(v) SpamMode = v end
+})
+
+ManualSpamTab:CreateLabel("Press Q to toggle spam on/off")
 
 local VisualsSection = MiscTab:CreateSection("Visuals")
 
@@ -2403,7 +2513,7 @@ end)
 -- ─── Notify load ─────────────────────────────────────────────────────────
 Rayfield:Notify({
 	Title    = "click",
-	Content  = "loaded successfully",
+	Content  = "loaded successfully | improved auto parry v2.0 | ✓ LOBBY AP & AUTO PARRY → AUTO SPAM PARRY CONNECTED",
 	Duration = 3,
 	Image    = nil
 })
