@@ -367,21 +367,30 @@ end
 
 local SemiImmortal = {}
 SemiImmortal.Enabled = false
-SemiImmortal.Distance = 25
-SemiImmortal.Height = 0
-SemiImmortal.Speed = 2
+SemiImmortal.FirstCircleRadius = 15
+SemiImmortal.FirstCircleSpeed = 15
+SemiImmortal.SecondCircleRadius = 8
+SemiImmortal.SecondCircleHeight = 25
+SemiImmortal.SecondCircleSpeed = 20
 SemiImmortal.ActiveConnection = nil
 SemiImmortal.VisualizerEnabled = false
 SemiImmortal.VisualizerPart = nil
-SemiImmortal.LastPosition = nil
-SemiImmortal.PositionChangeTime = 0
+SemiImmortal.FirstAngle = 0
+SemiImmortal.SecondAngle = 0
+SemiImmortal.ClientRootPart = nil
+SemiImmortal.RealPosition = nil
 
 function SemiImmortal:Start()
 	if self.ActiveConnection then return end
 	
 	self.Enabled = true
-	self.LastPosition = nil
-	self.PositionChangeTime = tick()
+	self.FirstAngle = 0
+	self.SecondAngle = 0
+	
+	local char = LocalPlayer.Character
+	if char then
+		self.ClientRootPart = char:FindFirstChild("HumanoidRootPart")
+	end
 	
 	if self.VisualizerEnabled and not self.VisualizerPart then
 		self:CreateVisualizer()
@@ -398,37 +407,36 @@ function SemiImmortal:Start()
 		
 		local ball = AutoParry.GetBall()
 		if not ball then 
-			self:Stop()
 			return
 		end
 		
-		local currentTime = tick()
-		if currentTime - self.PositionChangeTime >= (1 / self.Speed) then
-			self.PositionChangeTime = currentTime
-			
-			local ballPos = ball.Position
-			
-			local angle = math.random() * 2 * math.pi
-			local radius = self.Distance * (0.8 + math.random() * 0.4)
-			
-			local orbX = math.cos(angle) * radius
-			local orbZ = math.sin(angle) * radius
-			
-			local heightOffset = self.Height + (math.random() * 4 - 2)
-			
-			local targetX = ballPos.X + orbX
-			local targetY = ballPos.Y + heightOffset
-			local targetZ = ballPos.Z + orbZ
-			
-			local targetPos = Vector3.new(targetX, targetY, targetZ)
-			
-			self.LastPosition = targetPos
-			
-			rootPart.CFrame = CFrame.new(targetPos) * CFrame.Angles(0, math.rad(math.random(0, 360)), 0)
-		end
+		self.FirstAngle = self.FirstAngle + (self.FirstCircleSpeed * 0.03)
+		self.SecondAngle = self.SecondAngle + (self.SecondCircleSpeed * 0.03)
 		
-		if self.VisualizerEnabled and self.VisualizerPart and self.LastPosition then
-			self.VisualizerPart.CFrame = CFrame.new(self.LastPosition)
+		local ballPos = ball.Position
+		
+		local firstX = math.cos(self.FirstAngle) * self.FirstCircleRadius
+		local firstZ = math.sin(self.FirstAngle) * self.FirstCircleRadius
+		
+		local firstTargetX = ballPos.X + firstX
+		local firstTargetY = ballPos.Y
+		local firstTargetZ = ballPos.Z + firstZ
+		
+		local secondX = math.cos(self.SecondAngle) * self.SecondCircleRadius
+		local secondZ = math.sin(self.SecondAngle) * self.SecondCircleRadius
+		
+		local secondTargetX = firstTargetX + secondX
+		local secondTargetY = ballPos.Y + self.SecondCircleHeight
+		local secondTargetZ = firstTargetZ + secondZ
+		
+		local finalTargetPos = Vector3.new(secondTargetX, secondTargetY, secondTargetZ)
+		
+		self.RealPosition = finalTargetPos
+		
+		rootPart.CFrame = CFrame.new(finalTargetPos) * CFrame.Angles(0, self.FirstAngle * 2, 0)
+		
+		if self.VisualizerEnabled and self.VisualizerPart and self.RealPosition then
+			self.VisualizerPart.CFrame = CFrame.new(self.RealPosition)
 		end
 	end)
 end
@@ -443,6 +451,7 @@ function SemiImmortal:Stop()
 	end
 	
 	self:HideVisualizer()
+	self.RealPosition = nil
 end
 
 function SemiImmortal:CreateVisualizer()
@@ -499,16 +508,24 @@ function SemiImmortal:SetVisualizerEnabled(enabled)
 	end
 end
 
-function SemiImmortal:SetDistance(distance)
-	self.Distance = math.max(5, math.min(distance, 50))
+function SemiImmortal:SetFirstCircleRadius(radius)
+	self.FirstCircleRadius = math.max(5, math.min(radius, 30))
 end
 
-function SemiImmortal:SetHeight(height)
-	self.Height = math.clamp(height, -20, 20)
+function SemiImmortal:SetFirstCircleSpeed(speed)
+	self.FirstCircleSpeed = math.max(5, math.min(speed, 30))
 end
 
-function SemiImmortal:SetSpeed(speed)
-	self.Speed = math.max(0.5, math.min(speed, 10))
+function SemiImmortal:SetSecondCircleRadius(radius)
+	self.SecondCircleRadius = math.max(2, math.min(radius, 15))
+end
+
+function SemiImmortal:SetSecondCircleHeight(height)
+	self.SecondCircleHeight = math.max(10, math.min(height, 50))
+end
+
+function SemiImmortal:SetSecondCircleSpeed(speed)
+	self.SecondCircleSpeed = math.max(5, math.min(speed, 40))
 end
 
 local AutoParry_Improved = {}
@@ -2464,33 +2481,53 @@ BlatantTab:CreateToggle({
 })
 
 BlatantTab:CreateSlider({
-	Name = "Movement Distance",
-	Range = {5, 50},
+	Name = "First Circle Radius",
+	Range = {5, 30},
+	Increment = 1,
+	Suffix = "studs",
+	CurrentValue = 15,
+	Flag = "firstCircleRadius",
+	Callback = function(v) SemiImmortal:SetFirstCircleRadius(v) end
+})
+
+BlatantTab:CreateSlider({
+	Name = "First Circle Speed",
+	Range = {5, 30},
+	Increment = 1,
+	Suffix = "x",
+	CurrentValue = 15,
+	Flag = "firstCircleSpeed",
+	Callback = function(v) SemiImmortal:SetFirstCircleSpeed(v) end
+})
+
+BlatantTab:CreateSlider({
+	Name = "Second Circle Radius",
+	Range = {2, 15},
+	Increment = 1,
+	Suffix = "studs",
+	CurrentValue = 8,
+	Flag = "secondCircleRadius",
+	Callback = function(v) SemiImmortal:SetSecondCircleRadius(v) end
+})
+
+BlatantTab:CreateSlider({
+	Name = "Second Circle Height",
+	Range = {10, 50},
 	Increment = 1,
 	Suffix = "studs",
 	CurrentValue = 25,
-	Flag = "semiImmortalDistance",
-	Callback = function(v) SemiImmortal:SetDistance(v) end
+	Flag = "secondCircleHeight",
+	Callback = function(v) SemiImmortal:SetSecondCircleHeight(v) end
 })
 
 BlatantTab:CreateSlider({
-	Name = "Height Offset",
-	Range = {-20, 20},
+	Name = "Second Circle Speed",
+	Range = {5, 40},
 	Increment = 1,
-	Suffix = "studs",
-	CurrentValue = 0,
-	Flag = "semiImmortalHeight",
-	Callback = function(v) SemiImmortal:SetHeight(v) end
-})
-
-BlatantTab:CreateSlider({
-	Name = "Movement Speed",
-	Range = {0.5, 10},
-	Increment = 0.5,
 	Suffix = "x",
-	CurrentValue = 2,
-	Flag = "semiImmortalSpeed",
-	Callback = function(v) SemiImmortal:SetSpeed(v) end
+	CurrentValue = 20,
+	Flag = "secondCircleSpeed",
+	Callback = function(v) SemiImmortal:SetSecondCircleSpeed(v) end
 })
 
 local DetectionsTab = Window:CreateTab("Detections", nil)
@@ -2894,8 +2931,8 @@ end)
 
 if Rayfield then
 	Rayfield:Notify({
-		Title    = "kherby hub",
-		Content  = "Loaded",
+		Title    = "kherby",
+		Content  = "loaded",
 		Duration = 3,
 		Image    = nil
 	})
