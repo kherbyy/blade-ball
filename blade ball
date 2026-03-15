@@ -365,167 +365,304 @@ function OrbitalMovement:ResetCamera()
 	self.CameraDistance = 30
 end
 
-local SemiImmortal = {}
-SemiImmortal.Enabled = false
-SemiImmortal.FirstCircleRadius = 15
-SemiImmortal.FirstCircleSpeed = 15
-SemiImmortal.SecondCircleRadius = 8
-SemiImmortal.SecondCircleHeight = 25
-SemiImmortal.SecondCircleSpeed = 20
-SemiImmortal.ActiveConnection = nil
-SemiImmortal.VisualizerEnabled = false
-SemiImmortal.VisualizerPart = nil
-SemiImmortal.FirstAngle = 0
-SemiImmortal.SecondAngle = 0
-SemiImmortal.ClientRootPart = nil
-SemiImmortal.RealPosition = nil
+local DesyncVisualizer = {}
+DesyncVisualizer.Enabled = false
+DesyncVisualizer.Part = nil
+DesyncVisualizer.Color = Color3.fromRGB(0, 255, 100)
+DesyncVisualizer.Size = 2.5
 
-function SemiImmortal:Start()
-	if self.ActiveConnection then return end
+function DesyncVisualizer:Create()
+	if self.Part then self.Part:Destroy() end
 	
+	self.Part = Instance.new("Part")
+	self.Part.Name = "Visualizer"
+	self.Part.Shape = Enum.PartType.Ball
+	self.Part.Size = Vector3.new(self.Size, self.Size, self.Size)
+	self.Part.Color = self.Color
+	self.Part.Material = Enum.Material.Neon
+	self.Part.Transparency = 0.3
+	self.Part.Anchored = true
+	self.Part.CanCollide = false
+	self.Part.CFrame = CFrame.new(0, 0, 0)
+	self.Part.Parent = Workspace
+	
+	local bill = Instance.new("BillboardGui")
+	bill.Size = UDim2.new(0, 120, 0, 30)
+	bill.StudsOffset = Vector3.new(0, 3, 0)
+	bill.AlwaysOnTop = true
+	bill.Parent = self.Part
+	
+	local txt = Instance.new("TextLabel")
+	txt.Size = UDim2.new(1, 0, 1, 0)
+	txt.BackgroundTransparency = 1
+	txt.Text = "PATH"
+	txt.TextColor3 = Color3.fromRGB(0, 255, 100)
+	txt.TextSize = 12
+	txt.Font = Enum.Font.GothamBold
+	txt.Parent = bill
+end
+
+function DesyncVisualizer:Destroy()
+	if self.Part then
+		pcall(function() self.Part:Destroy() end)
+		self.Part = nil
+	end
+end
+
+function DesyncVisualizer:Update(position)
+	if not self.Enabled then
+		self:Destroy()
+		return
+	end
+	
+	if not self.Part then
+		self:Create()
+	end
+	
+	if self.Part then
+		self.Part.CFrame = CFrame.new(position)
+	end
+end
+
+function DesyncVisualizer:Toggle(enabled)
+	self.Enabled = enabled
+	if not enabled then
+		self:Destroy()
+	end
+end
+
+local Movement = {}
+Movement.Enabled = false
+Movement.Speed = 8.0
+Movement.Distance = 25
+Movement.Angle = 0
+Movement.ActiveConnection = nil
+Movement.CameraLockEnabled = false
+Movement.CameraConnection = nil
+Movement.CameraDistance = 30
+Movement.CameraYaw = 0
+Movement.CameraPitch = 0
+Movement.MouseSensitivity = 0.3
+Movement.ReturnToPosition = true
+Movement.OriginalCFrame = nil
+Movement.HeightAboveHead = 15
+Movement.IsShiftLocked = false
+Movement.SmoothMode = false
+Movement.AvoidBall = false
+Movement.AvoidDistance = 50
+
+function Movement:Start()
+	if self.ActiveConnection then return end
 	self.Enabled = true
-	self.FirstAngle = 0
-	self.SecondAngle = 0
+	self.Angle = 0
+	self.CameraYaw = 0
+	self.CameraPitch = 0
 	
 	local char = LocalPlayer.Character
 	if char then
-		self.ClientRootPart = char:FindFirstChild("HumanoidRootPart")
-	end
-	
-	if self.VisualizerEnabled and not self.VisualizerPart then
-		self:CreateVisualizer()
+		local rootPart = char:FindFirstChild("HumanoidRootPart")
+		if rootPart then
+			self.OriginalCFrame = rootPart.CFrame
+		end
 	end
 	
 	self.ActiveConnection = RunService.Heartbeat:Connect(function()
 		if not self.Enabled then return end
 		
 		local char = LocalPlayer.Character
-		if not char then return end
+		if not char then self:Stop() return end
 		
+		local rootPart = char:FindFirstChild("HumanoidRootPart")
+		if not rootPart then self:Stop() return end
+		
+		local camera = Workspace.CurrentCamera
+		local camDistance = (camera.CFrame.Position - rootPart.CFrame.Position).Magnitude
+		self.IsShiftLocked = camDistance < 5
+		
+		self.Angle = self.Angle + (self.Speed * 0.03)
+		
+		local currentPos = rootPart.CFrame.Position
+		local currentRotation = rootPart.CFrame.Rotation
+		
+		local centerPos = currentPos
+		local radius = self.Distance
+		
+		local horizontalPos = centerPos
+		
+		if self.IsShiftLocked then
+			local cameraDir = (camera.Focus.Position - camera.CFrame.Position).Unit
+			local upDir = Vector3.new(0, 1, 0)
+			local rightDir = cameraDir:Cross(upDir).Unit
+			local lookDir = rightDir:Cross(upDir).Unit
+			
+			local orbitOffset = (lookDir * math.cos(self.Angle) + rightDir * math.sin(self.Angle)) * radius
+			horizontalPos = centerPos + orbitOffset
+		else
+			local orbX = math.cos(self.Angle) * radius
+			local orbZ = math.sin(self.Angle) * radius
+			
+			horizontalPos = Vector3.new(centerPos.X + orbX, centerPos.Y, centerPos.Z + orbZ)
+		end
+		
+		local isOnCircle2 = (self.Angle % (math.pi * 2)) > math.pi
+		
+		local finalPos
+		
+		if isOnCircle2 then
+			local verticalCircle = math.sin(self.Angle * 0.5) * (self.HeightAboveHead * 0.5)
+			finalPos = Vector3.new(
+				horizontalPos.X,
+				horizontalPos.Y + self.HeightAboveHead + verticalCircle,
+				horizontalPos.Z
+			)
+		else
+			finalPos = Vector3.new(
+				horizontalPos.X,
+				horizontalPos.Y,
+				horizontalPos.Z
+			)
+		end
+		
+		if self.AvoidBall then
+			local ball = AutoParry.GetBall()
+			if ball then
+				local ballPos = ball.Position
+				local directionFromBall = (finalPos - ballPos).Unit
+				local distanceFromBall = (finalPos - ballPos).Magnitude
+				
+				if distanceFromBall < self.AvoidDistance then
+					finalPos = ballPos + (directionFromBall * self.AvoidDistance)
+				end
+			end
+		end
+		
+		if Movement.ReturnToPosition then
+			DesyncVisualizer:Update(finalPos)
+		end
+		
+		if self.SmoothMode then
+			rootPart.CFrame = CFrame.new(finalPos) * currentRotation
+		else
+			rootPart.CFrame = CFrame.new(finalPos) * currentRotation
+		end
+		
+		if self.ReturnToPosition then
+			RunService.RenderStepped:Wait()
+			rootPart.CFrame = CFrame.new(currentPos) * currentRotation
+		end
+	end)
+	
+	if self.CameraLockEnabled then
+		self:StartCameraLock()
+	end
+end
+
+function Movement:Stop()
+	self.Enabled = false
+	if self.ActiveConnection then
+		pcall(function() self.ActiveConnection:Disconnect() end)
+		self.ActiveConnection = nil
+	end
+	DesyncVisualizer:Toggle(false)
+	self:StopCameraLock()
+end
+
+function Movement:SetSpeed(speed)
+	self.Speed = math.max(0.5, math.min(speed, 20))
+end
+
+function Movement:SetDistance(distance)
+	self.Distance = math.max(5, math.min(distance, 50))
+end
+
+function Movement:SetCameraLockEnabled(enabled)
+	self.CameraLockEnabled = enabled
+	if self.Enabled then
+		if enabled then self:StartCameraLock() else self:StopCameraLock() end
+	end
+end
+
+function Movement:StartCameraLock()
+	if self.CameraConnection then return end
+	
+	local camera = Workspace.CurrentCamera
+	if not camera then return end
+	
+	local mouseMoveConn = UserInputService.InputChanged:Connect(function(input, gp)
+		if gp or not self.CameraLockEnabled then return end
+		if input.UserInputType == Enum.UserInputType.MouseMovement then
+			self.CameraYaw = self.CameraYaw + input.Delta.X * self.MouseSensitivity
+			self.CameraPitch = math.clamp(self.CameraPitch + input.Delta.Y * self.MouseSensitivity, -60, 60)
+		end
+	end)
+	
+	local wheelConn = UserInputService.InputChanged:Connect(function(input, gp)
+		if gp or not self.CameraLockEnabled then return end
+		if input.UserInputType == Enum.UserInputType.MouseWheel then
+			self.CameraDistance = math.clamp(self.CameraDistance - input.Position.Z * 3, 5, 100)
+		end
+	end)
+	
+	self.CameraConnection = RunService.RenderStepped:Connect(function()
+		if not self.Enabled or not self.CameraLockEnabled then return end
+		
+		local char = LocalPlayer.Character
+		if not char then return end
 		local rootPart = char:FindFirstChild("HumanoidRootPart")
 		if not rootPart then return end
 		
-		local ball = AutoParry.GetBall()
-		if not ball then 
-			return
-		end
+		local centerPos = rootPart.CFrame.Position
+		local yawRad = math.rad(self.CameraYaw)
+		local pitchRad = math.rad(self.CameraPitch)
 		
-		self.FirstAngle = self.FirstAngle + (self.FirstCircleSpeed * 0.03)
-		self.SecondAngle = self.SecondAngle + (self.SecondCircleSpeed * 0.03)
+		local camX = centerPos.X + math.cos(yawRad) * math.cos(pitchRad) * self.CameraDistance
+		local camY = centerPos.Y + math.sin(pitchRad) * self.CameraDistance
+		local camZ = centerPos.Z + math.sin(yawRad) * math.cos(pitchRad) * self.CameraDistance
 		
-		local ballPos = ball.Position
-		
-		local firstX = math.cos(self.FirstAngle) * self.FirstCircleRadius
-		local firstZ = math.sin(self.FirstAngle) * self.FirstCircleRadius
-		
-		local firstTargetX = ballPos.X + firstX
-		local firstTargetY = ballPos.Y
-		local firstTargetZ = ballPos.Z + firstZ
-		
-		local secondX = math.cos(self.SecondAngle) * self.SecondCircleRadius
-		local secondZ = math.sin(self.SecondAngle) * self.SecondCircleRadius
-		
-		local secondTargetX = firstTargetX + secondX
-		local secondTargetY = ballPos.Y + self.SecondCircleHeight
-		local secondTargetZ = firstTargetZ + secondZ
-		
-		local finalTargetPos = Vector3.new(secondTargetX, secondTargetY, secondTargetZ)
-		
-		self.RealPosition = finalTargetPos
-		
-		rootPart.CFrame = CFrame.new(finalTargetPos) * CFrame.Angles(0, self.FirstAngle * 2, 0)
-		
-		if self.VisualizerEnabled and self.VisualizerPart and self.RealPosition then
-			self.VisualizerPart.CFrame = CFrame.new(self.RealPosition)
-		end
+		camera.CFrame = CFrame.lookAt(Vector3.new(camX, camY, camZ), centerPos)
 	end)
+	
+	self.CameraControlConnections = {mouseMoveConn, wheelConn}
 end
 
-function SemiImmortal:Stop()
-	self.Enabled = false
-	if self.ActiveConnection then
-		pcall(function()
-			self.ActiveConnection:Disconnect()
-		end)
-		self.ActiveConnection = nil
+function Movement:StopCameraLock()
+	if self.CameraConnection then
+		pcall(function() self.CameraConnection:Disconnect() end)
+		self.CameraConnection = nil
 	end
 	
-	self:HideVisualizer()
-	self.RealPosition = nil
-end
-
-function SemiImmortal:CreateVisualizer()
-	if self.VisualizerPart then
-		pcall(function()
-			self.VisualizerPart:Destroy()
-		end)
-	end
-	
-	self.VisualizerPart = Instance.new("Part")
-	self.VisualizerPart.Name = "SemiImmortalVisualizer"
-	self.VisualizerPart.Shape = Enum.PartType.Ball
-	self.VisualizerPart.Size = Vector3.new(3, 3, 3)
-	self.VisualizerPart.BrickColor = BrickColor.new("Really red")
-	self.VisualizerPart.Material = Enum.Material.Neon
-	self.VisualizerPart.Transparency = 0.3
-	self.VisualizerPart.Anchored = true
-	self.VisualizerPart.CanCollide = false
-	self.VisualizerPart.Parent = Workspace
-	
-	local billboard = Instance.new("BillboardGui")
-	billboard.Name = "VisualizerLabel"
-	billboard.Size = UDim2.new(0, 100, 0, 30)
-	billboard.StudsOffset = Vector3.new(0, 2, 0)
-	billboard.AlwaysOnTop = true
-	billboard.Parent = self.VisualizerPart
-	
-	local text = Instance.new("TextLabel")
-	text.Size = UDim2.new(1, 0, 1, 0)
-	text.BackgroundTransparency = 1
-	text.Text = "REAL POSITION"
-	text.TextColor3 = Color3.new(1, 1, 1)
-	text.TextSize = 14
-	text.Font = Enum.Font.GothamBold
-	text.Parent = billboard
-end
-
-function SemiImmortal:HideVisualizer()
-	if self.VisualizerPart then
-		pcall(function()
-			self.VisualizerPart:Destroy()
-		end)
-		self.VisualizerPart = nil
+	if self.CameraControlConnections then
+		for _, conn in ipairs(self.CameraControlConnections) do
+			pcall(function() conn:Disconnect() end)
+		end
+		self.CameraControlConnections = nil
 	end
 end
 
-function SemiImmortal:SetVisualizerEnabled(enabled)
-	self.VisualizerEnabled = enabled
-	
-	if enabled and self.Enabled then
-		self:CreateVisualizer()
-	elseif not enabled then
-		self:HideVisualizer()
-	end
+function Movement:ResetCamera()
+	self.CameraYaw = 0
+	self.CameraPitch = 0
+	self.CameraDistance = 30
 end
 
-function SemiImmortal:SetFirstCircleRadius(radius)
-	self.FirstCircleRadius = math.max(5, math.min(radius, 30))
+function Movement:SetHeightAboveHead(height)
+	self.HeightAboveHead = math.max(0, math.min(height, 50))
 end
 
-function SemiImmortal:SetFirstCircleSpeed(speed)
-	self.FirstCircleSpeed = math.max(5, math.min(speed, 30))
+function Movement:SetReturnToPosition(enabled)
+	self.ReturnToPosition = enabled
 end
 
-function SemiImmortal:SetSecondCircleRadius(radius)
-	self.SecondCircleRadius = math.max(2, math.min(radius, 15))
+function Movement:SetSmoothMode(enabled)
+	self.SmoothMode = enabled
 end
 
-function SemiImmortal:SetSecondCircleHeight(height)
-	self.SecondCircleHeight = math.max(10, math.min(height, 50))
+function Movement:SetAvoidBall(enabled)
+	self.AvoidBall = enabled
 end
 
-function SemiImmortal:SetSecondCircleSpeed(speed)
-	self.SecondCircleSpeed = math.max(5, math.min(speed, 40))
+function Movement:SetAvoidDistance(distance)
+	self.AvoidDistance = math.max(10, math.min(distance, 150))
 end
 
 local AutoParry_Improved = {}
@@ -2363,8 +2500,8 @@ BlatantTab:CreateToggle({
 	Flag = "enableOrbit",
 	Callback = function(v)
 		if v then
-			if SemiImmortal.Enabled then
-				SemiImmortal:Stop()
+			if Movement.Enabled then
+				Movement:Stop()
 			end
 			pcall(function()
 				OrbitalMovement:Start()
@@ -2460,74 +2597,135 @@ BlatantTab:CreateToggle({
 			if OrbitalMovement.Enabled then
 				OrbitalMovement:Stop()
 			end
-			pcall(function()
-				SemiImmortal:Start()
-			end)
+			Movement:SetReturnToPosition(true)
+			Movement:SetCameraLockEnabled(true)
+			Movement:Start()
+			DesyncVisualizer:Toggle(false)
+			if Rayfield then
+				Rayfield:Notify({
+					Title = "Semi Immortal",
+					Content = "Started! Press SHIFT for ShiftLock",
+					Duration = 2
+				})
+			end
 		else
-			pcall(function()
-				SemiImmortal:Stop()
-			end)
+			Movement:SetCameraLockEnabled(false)
+			Movement:Stop()
+			if Rayfield then
+				Rayfield:Notify({
+					Title = "Semi Immortal",
+					Content = "Stopped",
+					Duration = 1.5
+				})
+			end
 		end
 	end
 })
 
 BlatantTab:CreateToggle({
-	Name = "Show Visualizer",
+	Name = "Show Path",
 	CurrentValue = false,
-	Flag = "semiImmortalVisualizer",
+	Flag = "showPath",
 	Callback = function(v)
-		SemiImmortal:SetVisualizerEnabled(v)
+		DesyncVisualizer:Toggle(v and Movement.Enabled)
+		if v then
+			Rayfield:Notify({
+				Title = "Path Visualizer",
+				Content = "Showing path",
+				Duration = 1.5
+			})
+		else
+			Rayfield:Notify({
+				Title = "Path Visualizer",
+				Content = "Hidden",
+				Duration = 1.5
+			})
+		end
+	end
+})
+
+BlatantTab:CreateToggle({
+	Name = "Smooth Mode",
+	CurrentValue = false,
+	Flag = "smoothMode",
+	Callback = function(v)
+		Movement:SetSmoothMode(v)
+		if v then
+			Rayfield:Notify({
+				Title = "Smooth Mode",
+				Content = "Smooth movement enabled",
+				Duration = 1.5
+			})
+		else
+			Rayfield:Notify({
+				Title = "Smooth Mode",
+				Content = "Teleport mode enabled",
+				Duration = 1.5
+			})
+		end
+	end
+})
+
+BlatantTab:CreateToggle({
+	Name = "Avoid Ball",
+	CurrentValue = false,
+	Flag = "avoidBall",
+	Callback = function(v)
+		Movement:SetAvoidBall(v)
+		if v then
+			Rayfield:Notify({
+				Title = "Ball Avoidance",
+				Content = "ON - Moving away from ball!",
+				Duration = 2
+			})
+		else
+			Rayfield:Notify({
+				Title = "Ball Avoidance",
+				Content = "OFF",
+				Duration = 1.5
+			})
+		end
 	end
 })
 
 BlatantTab:CreateSlider({
-	Name = "First Circle Radius",
-	Range = {5, 30},
-	Increment = 1,
+	Name = "Avoid Distance",
+	Range = {10, 150},
+	Increment = 5,
 	Suffix = "studs",
-	CurrentValue = 15,
-	Flag = "firstCircleRadius",
-	Callback = function(v) SemiImmortal:SetFirstCircleRadius(v) end
+	CurrentValue = 50,
+	Flag = "avoidDistance",
+	Callback = function(v) Movement:SetAvoidDistance(v) end
 })
 
 BlatantTab:CreateSlider({
-	Name = "First Circle Speed",
-	Range = {5, 30},
-	Increment = 1,
+	Name = "Speed",
+	Range = {0.5, 20},
+	Increment = 0.5,
 	Suffix = "x",
-	CurrentValue = 15,
-	Flag = "firstCircleSpeed",
-	Callback = function(v) SemiImmortal:SetFirstCircleSpeed(v) end
+	CurrentValue = 8.0,
+	Flag = "semiSpeed",
+	Callback = function(v) Movement:SetSpeed(v) end
 })
 
 BlatantTab:CreateSlider({
-	Name = "Second Circle Radius",
-	Range = {2, 15},
-	Increment = 1,
-	Suffix = "studs",
-	CurrentValue = 8,
-	Flag = "secondCircleRadius",
-	Callback = function(v) SemiImmortal:SetSecondCircleRadius(v) end
-})
-
-BlatantTab:CreateSlider({
-	Name = "Second Circle Height",
-	Range = {10, 50},
+	Name = "Distance",
+	Range = {5, 50},
 	Increment = 1,
 	Suffix = "studs",
 	CurrentValue = 25,
-	Flag = "secondCircleHeight",
-	Callback = function(v) SemiImmortal:SetSecondCircleHeight(v) end
+	Flag = "semiDistance",
+	Callback = function(v) Movement:SetDistance(v) end
 })
 
 BlatantTab:CreateSlider({
-	Name = "Second Circle Speed",
-	Range = {5, 40},
+	Name = "Height Above Head",
+	Range = {0, 50},
 	Increment = 1,
-	Suffix = "x",
-	CurrentValue = 20,
-	Flag = "secondCircleSpeed",
-	Callback = function(v) SemiImmortal:SetSecondCircleSpeed(v) end
+	Suffix = "studs",
+	CurrentValue = 15,
+	Flag = "heightAboveHead",
+	Callback = function(v) Movement:SetHeightAboveHead(v) end
 })
 
 local DetectionsTab = Window:CreateTab("Detections", nil)
@@ -2929,9 +3127,17 @@ LocalPlayer.CharacterAdded:Connect(function(char)
 	if camera then camera.FieldOfView = _config._flags["FieldOfViewValue"] or 70 end
 end)
 
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+		if Movement.Enabled then
+		end
+	end
+end)
+
 if Rayfield then
 	Rayfield:Notify({
-		Title    = "kherby",
+		Title    = "blade ball",
 		Content  = "loaded",
 		Duration = 3,
 		Image    = nil
