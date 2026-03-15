@@ -1,6 +1,3 @@
--- click | rewritten with Rayfield UI + IMPROVED AUTO PARRY v2.0
--- ✓ LOBBY AP → AUTO SPAM PARRY - Auto Spam Parry triggers when Lobby AP fails 3+ times
--- ✓ AUTO PARRY → AUTO SPAM PARRY - Auto Spam Parry triggers when Auto Parry fails 3+ times
 getgenv().GG = {
 	Language = {
 		CheckboxEnabled = "Enabled",
@@ -110,9 +107,290 @@ local Character  = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local Humanoid   = Character:WaitForChild("Humanoid")
 local Alive      = Workspace:FindFirstChild("Alive")
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- IMPROVED AUTO PARRY MODULE v2.0
--- ═══════════════════════════════════════════════════════════════════════════════
+
+local AutoParry = {}
+AutoParry.Previous_Positions  = {}
+AutoParry.Velocity_History    = {}
+AutoParry.Dot_Histories       = {}
+AutoParry.Previous_Speeds     = {}
+AutoParry.Distance_History    = {}
+AutoParry.Previous_Velocities = {}
+
+function AutoParry.GetBall()
+	local success, result = pcall(function()
+		if Workspace and Workspace:FindFirstChild("Balls") then
+			for _, instance in pairs(Workspace.Balls:GetChildren()) do
+				if instance:GetAttribute("realBall") then
+					instance.CanCollide = false
+					return instance
+				end
+			end
+		end
+		return nil
+	end)
+	if success then
+		return result
+	end
+	return nil
+end
+
+function AutoParry.GetBalls()
+	local balls = {}
+	local success, result = pcall(function()
+		if Workspace and Workspace:FindFirstChild("Balls") then
+			for _, instance in pairs(Workspace.Balls:GetChildren()) do
+				if instance:GetAttribute("realBall") then
+					instance.CanCollide = false
+					table.insert(balls, instance)
+				end
+			end
+		end
+		return balls
+	end)
+	if success then
+		return result
+	end
+	return {}
+end
+
+function AutoParry.GetLobbyBalls()
+	local lobbyBalls = {}
+	local success, result = pcall(function()
+		if Workspace and Workspace:FindFirstChild("TrainingBalls") then
+			for _, instance in pairs(Workspace.TrainingBalls:GetChildren()) do
+				if instance:IsA("BasePart") and instance:GetAttribute("realBall") then
+					instance.CanCollide = false
+					table.insert(lobbyBalls, instance)
+				end
+			end
+		end
+		return lobbyBalls
+	end)
+	if success then
+		return result
+	end
+	return {}
+end
+
+
+
+local OrbitalMovement = {}
+OrbitalMovement.Enabled = false
+OrbitalMovement.OrbitSpeed = 8.0
+OrbitalMovement.OrbitDistance = 25
+OrbitalMovement.Angle = 0
+OrbitalMovement.VerticalOffset = 0
+OrbitalMovement.SmoothTurn = true
+OrbitalMovement.ActiveConnection = nil
+OrbitalMovement.CameraLockEnabled = false
+OrbitalMovement.CameraConnection = nil
+OrbitalMovement.CameraDistance = 30
+OrbitalMovement.CameraYaw = 0
+OrbitalMovement.CameraPitch = 0
+OrbitalMovement.LastMousePosition = nil
+OrbitalMovement.MouseSensitivity = 0.3
+
+function OrbitalMovement:Start()
+	if self.ActiveConnection then return end
+	
+	self.Enabled = true
+	self.Angle = 0
+	
+	-- Initialize camera angles
+	self.CameraYaw = 0
+	self.CameraPitch = 0
+	
+	self.ActiveConnection = game:GetService("RunService").Heartbeat:Connect(function()
+		if not self.Enabled then return end
+		
+		local char = LocalPlayer.Character
+		if not char then return end
+		
+		local rootPart = char:FindFirstChild("HumanoidRootPart")
+		if not rootPart then return end
+		
+		-- Get the ball
+		local ball = AutoParry.GetBall()
+		
+		if not ball then 
+			-- If no ball exists, stop orbiting
+			self:Stop()
+			return
+		end
+		
+		-- Increment angle to orbit
+		self.Angle = self.Angle + (self.OrbitSpeed * 0.03)
+		
+		-- Get ball position
+		local ballPos = ball.Position
+		
+		-- Calculate orbit coordinates (circular orbit around ball)
+		local radius = self.OrbitDistance
+		local orbX = math.cos(self.Angle) * radius
+		local orbZ = math.sin(self.Angle) * radius
+		
+		-- Calculate target position (floating around ball)
+		local targetX = ballPos.X + orbX
+		local targetY = ballPos.Y + self.VerticalOffset
+		local targetZ = ballPos.Z + orbZ
+		
+		local targetPos = Vector3.new(targetX, targetY, targetZ)
+		
+		-- FLOAT around the ball - use CFrame to position directly
+		rootPart.CFrame = CFrame.new(targetPos) * CFrame.Angles(0, self.Angle, 0)
+	end)
+	
+	-- Start camera lock if enabled
+	if self.CameraLockEnabled then
+		self:StartCameraLock()
+	end
+end
+
+function OrbitalMovement:Stop()
+	self.Enabled = false
+	if self.ActiveConnection then
+		pcall(function()
+			self.ActiveConnection:Disconnect()
+		end)
+		self.ActiveConnection = nil
+	end
+	
+	-- Stop camera lock
+	self:StopCameraLock()
+end
+
+function OrbitalMovement:SetOrbitSpeed(speed)
+	self.OrbitSpeed = math.max(0.5, math.min(speed, 20))
+end
+
+function OrbitalMovement:SetOrbitDistance(distance)
+	self.OrbitDistance = math.max(5, math.min(distance, 50))
+end
+
+function OrbitalMovement:SetVerticalOffset(offset)
+	self.VerticalOffset = math.clamp(offset, -20, 20)
+end
+
+function OrbitalMovement:SetCameraLockEnabled(enabled)
+	self.CameraLockEnabled = enabled
+	
+	if self.Enabled then
+		if enabled then
+			self:StartCameraLock()
+		else
+			self:StopCameraLock()
+		end
+	end
+end
+
+function OrbitalMovement:StartCameraLock()
+	if self.CameraConnection then return end
+	
+	local camera = Workspace.CurrentCamera
+	if not camera then return end
+	
+	-- Set up mouse movement tracking with COMPLETELY NORMAL controls
+	self:_SetupMouseTracking()
+	
+	self.CameraConnection = RunService.RenderStepped:Connect(function()
+		if not self.Enabled or not self.CameraLockEnabled then
+			if not self.CameraLockEnabled then
+				self:StopCameraLock()
+			end
+			return
+		end
+		
+		local ball = AutoParry.GetBall()
+		
+		if not ball then return end
+		
+		local ballPos = ball.Position
+		
+		-- Calculate camera position based on yaw, pitch, and distance
+		local yawRad = math.rad(self.CameraYaw)
+		local pitchRad = math.rad(self.CameraPitch)
+		
+		-- Spherical coordinates to Cartesian
+		local camX = ballPos.X + math.cos(yawRad) * math.cos(pitchRad) * self.CameraDistance
+		local camY = ballPos.Y + math.sin(pitchRad) * self.CameraDistance
+		local camZ = ballPos.Z + math.sin(yawRad) * math.cos(pitchRad) * self.CameraDistance
+		
+		local cameraPos = Vector3.new(camX, camY, camZ)
+		
+		-- Make camera look at the ball
+		local cameraCFrame = CFrame.lookAt(cameraPos, ballPos)
+		
+		-- Apply camera position
+		camera.CFrame = cameraCFrame
+	end)
+end
+
+function OrbitalMovement:_SetupMouseTracking()
+	-- Track mouse movement with COMPLETELY NORMAL orientation
+	local mouseMoveConn = UserInputService.InputChanged:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if input.UserInputType == Enum.UserInputType.MouseMovement then
+			if self.CameraLockEnabled then
+				local delta = Vector2.new(input.Delta.X, input.Delta.Y)
+				
+				self.CameraYaw = self.CameraYaw + delta.X * self.MouseSensitivity  -- FIXED: + for right
+				self.CameraPitch = math.clamp(
+					self.CameraPitch + delta.Y * self.MouseSensitivity,  -- FIXED: + for up
+					-60,
+					60
+				)
+			end
+		end
+	end)
+	
+	-- Mouse wheel for zoom (normal: scroll up = zoom in)
+	local wheelConn = UserInputService.InputChanged:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if input.UserInputType == Enum.UserInputType.MouseWheel then
+			if self.CameraLockEnabled then
+				local delta = input.Position.Z
+				-- NORMAL zoom: scroll up (positive) = zoom in (decrease distance)
+				self.CameraDistance = math.clamp(
+					self.CameraDistance - delta * 3,
+					5,
+					100
+				)
+			end
+		end
+	end)
+	
+	-- Store connections to clean up later
+	self.CameraControlConnections = {
+		mouseMoveConn,
+		wheelConn
+	}
+end
+
+function OrbitalMovement:StopCameraLock()
+	if self.CameraConnection then
+		pcall(function()
+			self.CameraConnection:Disconnect()
+		end)
+		self.CameraConnection = nil
+	end
+	
+	-- Clean up mouse control connections
+	if self.CameraControlConnections then
+		for _, conn in ipairs(self.CameraControlConnections) do
+			pcall(function()
+				conn:Disconnect()
+			end)
+		end
+		self.CameraControlConnections = nil
+	end
+end
+
+function OrbitalMovement:ResetCamera()
+	self.CameraYaw = 0
+	self.CameraPitch = 0
+	self.CameraDistance = 30
+end
+
 
 local AutoParry_Improved = {}
 
@@ -479,19 +757,6 @@ function AutoParry_Improved.UpdateBallHistoryOptimized(ball, velocityHistory, do
 	return true
 end
 
-function AutoParry_Improved.GenerateParryReport(speed, distance, ping, parryAccuracy, curveScore, isBackwardsCurved, isHighCurved)
-	return {
-		speed = math.floor(speed),
-		distance = math.floor(distance * 10) / 10,
-		ping = ping,
-		parryAccuracy = math.floor(parryAccuracy * 10) / 10,
-		curveScore = math.floor(curveScore * 10) / 10,
-		isBackwardsCurved = isBackwardsCurved,
-		isHighCurved = isHighCurved,
-		timestamp = tick()
-	}
-end
-
 -- ─── State variables ─────────────────────────────────────────────────────────
 local Aerodynamic            = false
 local AeroTime               = tick()
@@ -592,16 +857,82 @@ local BallSenderTracking          = {}
 
 local ManualSpamEnabled           = false
 local ManualSpamActive            = false
-local ManualSpamKey               = Enum.KeyCode.Q
+local ManualSpamKey               = Enum.KeyCode.C
 local ManualSpamWait              = 0.05
 local ManualSpamConnection        = nil
+local ManualSpamNotifications     = true
 
 -- ✓ AUTO SPAM PARRY COUNTERS - CONNECTED TO BOTH LOBBY AP AND AUTO PARRY
 local LobbyCloseRangeCounter = 0
 local AutoParryCloseRangeCounter = 0
 local CLOSE_RANGE_THRESHOLD = 25
-local MAX_CLOSE_RANGE_ATTEMPTS = 3
+local MAX_CLOSE_RANGE_ATTEMPTS = 2
+local ProximityTriggerDistance = 30
 local CurrentBallId = nil
+
+-- ✓ DYNAMIC SPAM SPEED - SCALES WITH BALL VELOCITY
+local function CalculateDynamicSpamDelay(ballSpeed)
+	if ballSpeed >= 1500 then
+		return 0.008
+	elseif ballSpeed >= 1200 then
+		return 0.01
+	elseif ballSpeed >= 1000 then
+		return 0.012
+	elseif ballSpeed >= 800 then
+		return 0.015
+	elseif ballSpeed >= 700 then
+		return 0.018
+	elseif ballSpeed >= 600 then
+		return 0.02
+	elseif ballSpeed >= 500 then
+		return 0.025
+	elseif ballSpeed >= 400 then
+		return 0.03
+	elseif ballSpeed >= 300 then
+		return 0.035
+	elseif ballSpeed >= 200 then
+		return 0.04
+	elseif ballSpeed >= 100 then
+		return 0.045
+	else
+		return 0.05
+	end
+end
+
+-- ✓ CONTINUOUS SPEED TRACKING FOR DYNAMIC SPAM (FIXED NIL ERROR)
+local BallSpeedHistory = {}
+local MaxSpeedHistory = 10
+local CurrentBallSpeed = 0
+
+local function UpdateBallSpeed()
+	local success, ball = pcall(AutoParry.GetBall)
+	if success and ball then
+		local zoomies = ball:FindFirstChild('zoomies')
+		if zoomies then
+			local newSpeed = zoomies.VectorVelocity.Magnitude
+			CurrentBallSpeed = newSpeed
+			
+			table.insert(BallSpeedHistory, newSpeed)
+			if #BallSpeedHistory > MaxSpeedHistory then
+				table.remove(BallSpeedHistory, 1)
+			end
+		end
+	end
+end
+
+local function GetAverageBallSpeed()
+	if #BallSpeedHistory == 0 then return CurrentBallSpeed end
+	local sum = 0
+	for _, speed in ipairs(BallSpeedHistory) do
+		sum = sum + speed
+	end
+	return sum / #BallSpeedHistory
+end
+
+-- Connect speed update to heartbeat (with pcall for safety)
+RunService.Heartbeat:Connect(function()
+	pcall(UpdateBallSpeed)
+end)
 
 local soundOptions = {
 	["EEYUH!"]                              = "rbxassetid://16190782181",
@@ -610,7 +941,7 @@ local soundOptions = {
 	["Everybody Wants To Rule The World"]   = "rbxassetid://87209527034670",
 	["CHWYKU"]                              = "rbxassetid://80796352391107",
 	["ULTCHILL FUNK"]                       = "rbxassetid://103283136727523",
-	["VEM VEM CHILL FUNK"]                  = "rbxassetid://70870883948497",
+	["VEM VEM CHILL FUNK"]                   = "rbxassetid://70870883948497",
 	["Rat Dance Remake"]                    = "rbxassetid://133496635668044",
 	["tobreak"]                             = "rbxassetid://111557295232821",
 	["Rise to the Horizon"]                 = "rbxassetid://72573266268313",
@@ -670,14 +1001,7 @@ for _, anim in pairs(ReplicatedStorage.Misc.Emotes:GetChildren()) do
 	end
 end
 
--- ─── AutoParry core ──────────────────────────────────────────────────────────
-local AutoParry = {}
-AutoParry.Previous_Positions  = {}
-AutoParry.Velocity_History    = {}
-AutoParry.Dot_Histories       = {}
-AutoParry.Previous_Speeds     = {}
-AutoParry.Distance_History    = {}
-AutoParry.Previous_Velocities = {}
+-- ─── AutoParry core (continued) ──────────────────────────────────────────────
 
 AutoParry.ParryAnim = function(useGrabParryOnly)
 	local ParryAnim
@@ -725,145 +1049,9 @@ AutoParry.PlayAnim = function(animName)
 	CurrentAnim = animName
 end
 
-AutoParry.GetBalls = function()
-	local Balls = {}
-	for _, instance in pairs(Workspace.Balls:GetChildren()) do
-		if instance:GetAttribute("realBall") then
-			instance.CanCollide = false
-			table.insert(Balls, instance)
-		end
-	end
-	return Balls
-end
-
-AutoParry.GetBall = function()
-	for _, instance in pairs(Workspace.Balls:GetChildren()) do
-		if instance:GetAttribute("realBall") then
-			instance.CanCollide = false
-			return instance
-		end
-	end
-end
-
-AutoParry.GetLobbyBalls = function()
-	local LobbyBalls = {}
-	for _, instance in pairs(Workspace.TrainingBalls:GetChildren()) do
-		if instance:IsA("BasePart") and instance:GetAttribute("realBall") then
-			instance.CanCollide = false
-			table.insert(LobbyBalls, instance)
-		end
-	end
-	return LobbyBalls
-end
-
 AutoParry.Linear_Interpolation = function(a, b, t) return a + (b - a) * t end
 
-AutoParry.IsCurved = function(ball)
-	if not ball then return false, false end
-	local Zoomies = ball:FindFirstChild('zoomies')
-	if not Zoomies then return false, false end
-	local Velocity = Zoomies.VectorVelocity
-	local Speed    = Velocity.Magnitude
-	if Speed < 60 then return false, false end
-	if not AutoParry.Velocity_History[ball] or #AutoParry.Velocity_History[ball] < 2 then return false, false end
-	if not AutoParry.Dot_Histories[ball]    or #AutoParry.Dot_Histories[ball]    < 2 then return false, false end
-	local Ball_Direction = Velocity.Unit
-	local Direction      = (LocalPlayer.Character.PrimaryPart.Position - ball.Position).Unit
-	local Dot            = Direction:Dot(Ball_Direction)
-	local Speed_Threshold  = math.min(Speed / 100, 40)
-	local Angle_Threshold  = 40 * math.max(Dot, 0)
-	local Distance         = (LocalPlayer.Character.PrimaryPart.Position - ball.Position).Magnitude
-	local baseDotThreshold = 0.15
-	if Speed > 600 then baseDotThreshold = -0.1
-	elseif Speed > 400 then baseDotThreshold = 0.0
-	elseif Speed > 200 then baseDotThreshold = 0.1 end
-	local Dot_Threshold    = baseDotThreshold - (GetAveragePing() / 2000) - math.min(Speed / 4000, 0.1)
-	local Reach_Time       = Distance / Speed - (GetAveragePing() / 1000)
-	local Ball_Distance_Threshold = 15 - math.min(Distance / 1000, 15) + Speed_Threshold
-	local Clamped_Dot      = math.clamp(Dot, -1, 1)
-	local Radians          = math.asin(math.abs(Clamped_Dot))
-	Lerp_Radians = AutoParry.Linear_Interpolation(Lerp_Radians, Radians, 0.8)
-	if Speed > 100 and Reach_Time > GetAveragePing() / 10 then
-		Ball_Distance_Threshold = math.max(Ball_Distance_Threshold - 15, 15)
-	end
-	if Lerp_Radians < 0.018 then Last_Warp_Time = tick() end
-	if (tick() - Last_Warp_Time) < (Reach_Time / 1.5) then return true, false end
-	if (tick() - Curve_Time)     < (Reach_Time / 1.5) then return true, false end
-
-	local backwardsCurveDetected = false
-	local backwardsAngleThreshold = 60
-	if Speed > 600 then backwardsAngleThreshold = 50
-	elseif Speed > 400 then backwardsAngleThreshold = 55
-	else backwardsAngleThreshold = 65 end
-
-	local playerPos    = LocalPlayer.Character.PrimaryPart.Position
-	local ballPos      = ball.Position
-	local horizDir     = Vector3.new(playerPos.X - ballPos.X, 0, playerPos.Z - ballPos.Z)
-	if horizDir.Magnitude > 0 then horizDir = horizDir.Unit end
-	local awayFromPlayer = -horizDir
-	local horizBallDir   = Vector3.new(Ball_Direction.X, 0, Ball_Direction.Z)
-	if horizBallDir.Magnitude > 0 then
-		horizBallDir = horizBallDir.Unit
-		local backwardsAngle = math.deg(math.acos(math.clamp(awayFromPlayer:Dot(horizBallDir), -1, 1)))
-		if backwardsAngle < backwardsAngleThreshold and Distance > 30 then
-			backwardsCurveDetected = true
-		end
-	end
-
-	local directionChanged = false
-	local changeThreshold  = 0.80
-	if Speed > 600 then changeThreshold = 0.75
-	elseif Speed > 400 then changeThreshold = 0.78 end
-	if AutoParry.Velocity_History[ball] and #AutoParry.Velocity_History[ball] >= 4 then
-		local prevVel = AutoParry.Velocity_History[ball][#AutoParry.Velocity_History[ball] - 1]
-		if prevVel.Magnitude > 100 and Speed > 100 then
-			if prevVel.Unit:Dot(Ball_Direction) < changeThreshold then
-				directionChanged = true
-			end
-		end
-	end
-
-	local dotVariance        = 0
-	local significantVariance = false
-	if AutoParry.Dot_Histories[ball] and #AutoParry.Dot_Histories[ball] >= 5 then
-		local hist = AutoParry.Dot_Histories[ball]
-		for i = 2, #hist do dotVariance = dotVariance + math.abs(hist[i] - hist[i-1]) end
-		dotVariance = dotVariance / (#hist - 1)
-		local varianceThreshold = 0.08
-		if Speed > 600 then varianceThreshold = 0.10
-		elseif Speed > 400 then varianceThreshold = 0.09 end
-		if dotVariance > varianceThreshold then significantVariance = true end
-	end
-
-	local highCurveDetected = false
-	local ballYVelocity = Velocity.Y
-	local horizontalSpeed = math.sqrt(Velocity.X^2 + Velocity.Z^2)
-
-	if ballYVelocity > 50 and horizontalSpeed > 100 then
-		highCurveDetected = true
-	end
-
-	local distanceMultiplier = 1.0
-	if Distance > 50 then
-		distanceMultiplier = 1.5
-	elseif Distance > 40 then
-		distanceMultiplier = 1.3
-	end
-
-	local curveConditions = 0
-	if Dot < Dot_Threshold         then curveConditions += 1 end
-	if backwardsCurveDetected      then curveConditions += 3 end
-	if directionChanged            then curveConditions += 1 end
-	if significantVariance         then curveConditions += 1 end
-	if highCurveDetected           then curveConditions += 2 end
-
-	local curved = curveConditions >= 3 or backwardsCurveDetected or highCurveDetected
-	return curved, backwardsCurveDetected, highCurveDetected
-end
-
-local Closest_Entity = nil
 AutoParry.Closest_Player = function()
-	if selectedTarget then return selectedTarget end
 	local Max_Distance = math.huge
 	local Found_Entity = nil
 	for _, Entity in pairs(Workspace.Alive:GetChildren()) do
@@ -877,17 +1065,17 @@ AutoParry.Closest_Player = function()
 			end
 		end
 	end
-	Closest_Entity = Found_Entity
 	return Found_Entity
 end
 
 AutoParry.Get_Entity_Properties = function()
 	AutoParry.Closest_Player()
-	if not Closest_Entity then return false end
+	local closestEntity = AutoParry.Closest_Player()
+	if not closestEntity then return false end
 	return {
-		Velocity  = Closest_Entity.PrimaryPart.Velocity,
-		Direction = (LocalPlayer.Character.PrimaryPart.Position - Closest_Entity.PrimaryPart.Position).Unit,
-		Distance  = (LocalPlayer.Character.PrimaryPart.Position - Closest_Entity.PrimaryPart.Position).Magnitude
+		Velocity  = closestEntity.PrimaryPart.Velocity,
+		Direction = (LocalPlayer.Character.PrimaryPart.Position - closestEntity.PrimaryPart.Position).Unit,
+		Distance  = (LocalPlayer.Character.PrimaryPart.Position - closestEntity.PrimaryPart.Position).Magnitude
 	}
 end
 
@@ -896,7 +1084,6 @@ local isMobile = UserInputService.TouchEnabled and not UserInputService.MouseEna
 AutoParry.Parry_Data = function(Parry_Type)
 	if not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then return nil end
 	
-	-- Normalize the parry type (handle case differences)
 	if Parry_Type then
 		Parry_Type = tostring(Parry_Type):lower()
 		if Parry_Type == "camera" then Parry_Type = "Camera" 
@@ -945,7 +1132,10 @@ AutoParry.Parry_Data = function(Parry_Type)
 		if Aimed_Player then
 			return {0, CFrame.new(LocalPlayer.Character.PrimaryPart.Position, Aimed_Player.PrimaryPart.Position), Events, Vector2_Mouse_Location}
 		else
-			return {0, CFrame.new(LocalPlayer.Character.PrimaryPart.Position, Closest_Entity.PrimaryPart.Position), Events, Vector2_Mouse_Location}
+			local closestEntity = AutoParry.Closest_Player()
+			if closestEntity then
+				return {0, CFrame.new(LocalPlayer.Character.PrimaryPart.Position, closestEntity.PrimaryPart.Position), Events, Vector2_Mouse_Location}
+			end
 		end
 	end
 	if Parry_Type == 'Random' then
@@ -963,45 +1153,31 @@ AutoParry.Parry_Data = function(Parry_Type)
 	if Parry_Type == 'Left'  then local v = Camera.CFrame.RightVector * 10000; return {0, CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position - v), Events, Vector2_Mouse_Location} end
 	if Parry_Type == 'Right' then local v = Camera.CFrame.RightVector * 10000; return {0, CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + v), Events, Vector2_Mouse_Location} end
 	
-	-- Fallback to Camera if no match (shouldn't happen, but safety)
-	print("[PARRY_DATA] Unknown Parry_Type: " .. tostring(Parry_Type) .. " - defaulting to Camera")
 	return {0, Camera.CFrame, Events, Vector2_Mouse_Location}
 end
 
 AutoParry.Parry = function(parryType)
-	-- ✓ Use SelectedParryType to get the curve direction
 	local actualParryType = parryType or SelectedParryType
-	print("[AUTO_PARRY] Parrying with type: " .. tostring(actualParryType) .. " | Has remotes: " .. tostring(next(ParryRemotes) ~= nil))
 	local parryData = AutoParry.Parry_Data(actualParryType)
-	if not parryData then 
-		print("[AUTO_PARRY] ERROR: parryData is nil for type: " .. tostring(actualParryType))
-		return 
-	end
+	if not parryData then return end
 	local hasRemotes = false
 	for remote, originalArgs in pairs(ParryRemotes) do
 		hasRemotes = true
-		-- parryData[2] contains the CFrame with curve direction
 		local mArgs = {originalArgs[1], originalArgs[2], 0, parryData[2], parryData[3], parryData[4]}
-		print("[AUTO_PARRY] Firing remote with parry type: " .. tostring(actualParryType))
 		if remote:IsA("RemoteEvent") then remote:FireServer(unpack(mArgs))
 		elseif remote:IsA("RemoteFunction") then remote:InvokeServer(unpack(mArgs)) end
 	end
-	if not hasRemotes then 
-		print("[AUTO_PARRY] No remotes found, using mouse1click")
-		mouse1click() 
-	end
+	if not hasRemotes then mouse1click() end
 	if Parries > 7 then return end
 	Parries += 1
 	task.delay(0.5, function() if Parries > 0 then Parries -= 1 end end)
 end
 
 AutoParry.PerformRemoteParry = function(parryType)
-	-- ✓ Use SelectedParryType to get the curve direction
 	local actualParryType = parryType or SelectedParryType
 	local parryData = AutoParry.Parry_Data(actualParryType)
 	if not parryData then return end
 	for remote, originalArgs in pairs(ParryRemotes) do
-		-- parryData[2] contains the CFrame with curve direction
 		local mArgs = {originalArgs[1], originalArgs[2], 0, parryData[2], parryData[3], parryData[4]}
 		if remote:IsA("RemoteEvent") then remote:FireServer(unpack(mArgs))
 		elseif remote:IsA("RemoteFunction") then remote:InvokeServer(unpack(mArgs)) end
@@ -1061,15 +1237,9 @@ end
 
 local function KeypressAPC(parryType)
 	if not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then return end
-	-- ✓ Use SelectedParryType if no parryType provided
 	local actualParryType = parryType or SelectedParryType
-	print("[KEYPRESS_APC] Starting with parry type: " .. tostring(actualParryType))
 	local parryData = AutoParry.Parry_Data(actualParryType)
-	if not parryData then 
-		print("[KEYPRESS_APC] ERROR: parryData is nil!")
-		return 
-	end
-	print("[KEYPRESS_APC] Got parryData - Target should curve: " .. tostring(actualParryType))
+	if not parryData then return end
 	local cam    = Workspace.CurrentCamera
 	local orig   = cam.CFrame
 	local rndAng = CFrame.Angles(math.rad(math.random(-5,5)), math.rad(math.random(-5,5)), math.rad(math.random(-2,2)))
@@ -1081,7 +1251,6 @@ local function KeypressAPC(parryType)
 		local elapsed = tick() - startTime
 		if elapsed >= duration then
 			conn:Disconnect()
-			print("[KEYPRESS_APC] Clicking now...")
 			SimulateParry()
 			task.wait(0.25 + math.random(-30,30)/1000)
 			local backStart = tick()
@@ -1409,7 +1578,6 @@ RunService.Heartbeat:Connect(function() Update_Ping() end)
 -- ─── AUTO SPAM PARRY - CONNECTED TO BOTH LOBBY AP AND AUTO PARRY ──────────────
 local AutoSpamParryEnabled = false
 local AutoSpamParryConnection = nil
-local ProximityTriggerDistance = 30
 local IsAutoSpamActive = false
 
 local function StartAutoSpamParry()
@@ -1438,42 +1606,22 @@ local function StartAutoSpamParry()
 			return
 		end
 
-		-- ✓ CONNECTED TO BOTH: Triggers if EITHER Lobby AP OR Auto Parry failed 3+ times
 		local totalFailures = LobbyCloseRangeCounter + AutoParryCloseRangeCounter
 		local distance = (LocalPlayer.Character.PrimaryPart.Position - ball.Position).Magnitude
 		local speed = zoomies.VectorVelocity.Magnitude
 
-		-- Activate if failed enough times AND within range
 		if ballTarget == tostring(LocalPlayer) and totalFailures >= MAX_CLOSE_RANGE_ATTEMPTS and distance <= ProximityTriggerDistance then
 			IsAutoSpamActive = true
 			
-			-- Continuous spam based on ball speed
 			if next(ParryRemotes) then
 				AutoParry.PerformRemoteParry(SelectedParryType)
 				Parries += 1
 				
-				-- Vary spam speed based on ball velocity
-				local spamDelay = 0.05
-				if speed > 700 then
-					spamDelay = 0.015
-				elseif speed > 600 then
-					spamDelay = 0.02
-				elseif speed > 500 then
-					spamDelay = 0.025
-				elseif speed > 400 then
-					spamDelay = 0.03
-				elseif speed > 300 then
-					spamDelay = 0.04
-				end
-				
-				-- Small wait to prevent overwhelming
+				local spamDelay = CalculateDynamicSpamDelay(speed)
 				task.wait(spamDelay)
 			end
 		else
-			-- ✓ SMOOTH TRANSITION: Don't just stop, reset counters when exiting
 			if IsAutoSpamActive then
-				print("[AUTO_SPAM] Exiting spam mode - ball distance: " .. tostring(math.floor(distance)) .. " speed: " .. tostring(math.floor(speed)))
-				-- Reset counters so Auto Parry gets a fresh start
 				LobbyCloseRangeCounter = 0
 				AutoParryCloseRangeCounter = 0
 			end
@@ -1501,8 +1649,8 @@ statsGui.DisplayOrder = 999
 
 local statsCard = Instance.new("Frame")
 statsCard.Name = "Card"
-statsCard.Size = UDim2.new(0, 200, 0, 116)
-statsCard.Position = UDim2.new(1, -215, 0, 10)
+statsCard.Size = UDim2.new(0, 250, 0, 160)
+statsCard.Position = UDim2.new(1, -265, 0, 10)
 statsCard.AnchorPoint = Vector2.new(0, 0)
 statsCard.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 statsCard.BackgroundTransparency = 0.05
@@ -1552,25 +1700,25 @@ titleLabel.Text = "Ball Stats"
 titleLabel.Parent = titleBar
 
 local contentArea = Instance.new("Frame")
-contentArea.Size = UDim2.new(1, -28, 0, 72)
+contentArea.Size = UDim2.new(1, -28, 0, 116)
 contentArea.Position = UDim2.new(0, 14, 0, 40)
 contentArea.BackgroundTransparency = 1
 contentArea.Parent = statsCard
 
 local listLayout = Instance.new("UIListLayout")
 listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-listLayout.Padding = UDim.new(0, 8)
+listLayout.Padding = UDim.new(0, 6)
 listLayout.Parent = contentArea
 
 local function MakeStatRow(parentFrame, labelText, valueColor, order)
 	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, 0, 0, 30)
+	row.Size = UDim2.new(1, 0, 0, 25)
 	row.BackgroundTransparency = 1
 	row.LayoutOrder = order
 	row.Parent = parentFrame
 
 	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, 0, 0, 13)
+	lbl.Size = UDim2.new(0.5, 0, 0, 13)
 	lbl.Position = UDim2.new(0, 0, 0, 0)
 	lbl.BackgroundTransparency = 1
 	lbl.TextColor3 = Color3.fromRGB(165, 165, 185)
@@ -1581,13 +1729,13 @@ local function MakeStatRow(parentFrame, labelText, valueColor, order)
 	lbl.Parent = row
 
 	local val = Instance.new("TextLabel")
-	val.Size = UDim2.new(1, 0, 0, 18)
-	val.Position = UDim2.new(0, 0, 0, 13)
+	val.Size = UDim2.new(0.5, 0, 0, 18)
+	val.Position = UDim2.new(0.5, 0, 0, 0)
 	val.BackgroundTransparency = 1
 	val.TextColor3 = valueColor
 	val.TextSize = 18
 	val.Font = Enum.Font.GothamBold
-	val.TextXAlignment = Enum.TextXAlignment.Left
+	val.TextXAlignment = Enum.TextXAlignment.Right
 	val.Text = "—"
 	val.Parent = row
 
@@ -1596,6 +1744,7 @@ end
 
 local currentVelValue = MakeStatRow(contentArea, "Current Velocity", Color3.fromRGB(255, 160, 50), 1)
 local peakVelValue    = MakeStatRow(contentArea, "Peak Velocity",    Color3.fromRGB(100, 200, 255), 2)
+local spamSpeedValue  = MakeStatRow(contentArea, "Spam Speed (ms)",  Color3.fromRGB(50, 255, 100), 3)
 local PeakVel = 0
 local BallStatsEnabled = false
 
@@ -1604,13 +1753,21 @@ RunService.RenderStepped:Connect(function()
 		statsCard.Visible = true
 		local ball = AutoParry.GetBall()
 		if ball then
-			local v = ball.Velocity.Magnitude
-			if v > PeakVel then PeakVel = v end
-			currentVelValue.Text = tostring(math.floor(v))
-			peakVelValue.Text    = tostring(math.floor(PeakVel))
+			local zoomies = ball:FindFirstChild('zoomies')
+			if zoomies then
+				local v = zoomies.VectorVelocity.Magnitude
+				if v > PeakVel then PeakVel = v end
+				currentVelValue.Text = tostring(math.floor(v))
+				peakVelValue.Text    = tostring(math.floor(PeakVel))
+				
+				local spamDelay = CalculateDynamicSpamDelay(v)
+				local spamHz = math.floor(1 / spamDelay)
+				spamSpeedValue.Text = tostring(math.floor(spamDelay * 1000)) .. "ms (" .. spamHz .. "/s)"
+			end
 		else
 			currentVelValue.Text = "—"
 			peakVelValue.Text    = "—"
+			spamSpeedValue.Text  = "—"
 			PeakVel = 0
 		end
 	else
@@ -1618,16 +1775,14 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
--- ══════════════════════════════════════════════════════════════════════════════
--- RAYFIELD UI
--- ══════════════════════════════════════════════════════════════════════════════
+
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-	Name            = "click",
+	Name            = "click + Orbital",
 	Icon            = 0,
 	LoadingTitle    = "click",
-	LoadingSubtitle = "loading...",
+	LoadingSubtitle = "loading with orbital movement...",
 	Theme           = "Default",
 	DisableRayfieldPrompts = false,
 	DisableBuildWarnings   = false,
@@ -1709,7 +1864,6 @@ MainTab:CreateToggle({
 							task.delay(1, function() parriedBalls[ball] = false end)
 							LastLobbyParry = Elapsed_Parry_Time
 						else
-							-- ✓ LOBBY AP FAILED - Increment lobby counter for Auto Spam Parry
 							if distance <= parryAccuracy * 1.2 then
 								LobbyCloseRangeCounter = LobbyCloseRangeCounter + 1
 							end
@@ -1884,19 +2038,9 @@ MainTab:CreateToggle({
 						AutoParry.Dot_Histories[ball]
 					)
 					
-					-- ✓ BOOST ACCURACY FOR FAST BALLS (to handle Auto Spam transitions)
-					-- When ball is very fast from Auto Spam, give Auto Parry a better chance
 					if speed > 500 then
-						local fastBallBoost = 1.0 + math.min((speed - 500) / 1000, 0.3)  -- Up to 30% boost
+						local fastBallBoost = 1.0 + math.min((speed - 500) / 1000, 0.3)
 						parryAccuracy = parryAccuracy * fastBallBoost
-						if speed > 800 then
-							print("[AUTO_PARRY] FAST BALL BOOST applied: " .. tostring(math.floor(speed)) .. " spd | accuracy boosted by " .. tostring(math.floor((fastBallBoost - 1) * 100)) .. "%")
-						end
-					end
-					
-					-- Debug: Show how accuracy setting affects parry decisions
-					if speed > 600 then
-						print("[AUTO_PARRY_CALC] Speed: " .. tostring(math.floor(speed)) .. " | Distance: " .. tostring(math.floor(distance)) .. " | ParryAccuracy: " .. tostring(math.floor(parryAccuracy)) .. " | Multiplier: " .. string.format("%.2f", Speed_Divisor_Multiplier))
 					end
 					
 					local shouldParry, decisionDistance, predictionTime = AutoParry_Improved.ShouldParryWithPrediction(
@@ -1925,24 +2069,15 @@ MainTab:CreateToggle({
 							useAbility = true; Use_Ability:Fire()
 						end
 						if not useAbility then
-							print("[AUTO_PARRY_LOOP] AutoParryType=" .. tostring(AutoParryType) .. " | SelectedParryType=" .. tostring(SelectedParryType) .. " | Has Remotes=" .. tostring(next(ParryRemotes) ~= nil))
-							
-							-- Always try Remote first if available
 							if Is_Supported_Test and next(ParryRemotes) then
-								print("[AUTO_PARRY_LOOP] Using REMOTE with curve: " .. tostring(SelectedParryType))
 								AutoParry.PerformRemoteParry(SelectedParryType)
-							-- Fallback to Keypress
 							elseif AutoParryType == "Keypress" or AutoParryType ~= "Remote" then
-								print("[AUTO_PARRY_LOOP] Using KEYPRESS with curve: " .. tostring(SelectedParryType))
 								KeypressAPC(SelectedParryType)
-							-- Last resort
 							else
-								print("[AUTO_PARRY_LOOP] Using SIMULATE with curve: " .. tostring(SelectedParryType))
 								SimulateParry()
 							end
 							Parries += 1; task.delay(0.5, function() if Parries > 0 then Parries -= 1 end end)
 							
-							-- ✓ AUTO PARRY FAILED - Increment auto parry counter for Auto Spam Parry
 							if distance <= CLOSE_RANGE_THRESHOLD then
 								AutoParryCloseRangeCounter = AutoParryCloseRangeCounter + 1
 							end
@@ -1982,15 +2117,12 @@ MainTab:CreateDropdown({
 	Flag = "ParryDirection",
 	Callback = function(v) 
 		local selectedValue
-		-- Handle both table and string returns from Rayfield
 		if v and type(v) == "table" then
 			selectedValue = v[1] or v
 		else
 			selectedValue = tostring(v)
 		end
-		
 		SelectedParryType = selectedValue
-		print("[CURVE_DIRECTION] ✓ Changed to: " .. tostring(SelectedParryType))
 	end
 })
 
@@ -2009,16 +2141,9 @@ MainTab:CreateSlider({
 	CurrentValue = 50,
 	Flag = "ParryAccuracy",
 	Callback = function(v) 
-		-- 0% = easiest (multiplier 1.5), 50% = balanced (multiplier 1.0), 100% = hardest (multiplier 0.5)
 		Speed_Divisor_Multiplier = 1.5 - (v / 100) * 1.0
-		print("[PARRY_ACCURACY] Set to " .. tostring(v) .. "% | Multiplier: " .. string.format("%.2f", Speed_Divisor_Multiplier) .. " (lower = harder)")
 	end
 })
-
-MainTab:CreateLabel("⬅ 0% = Easier | 100% = Harder ➡")
-
-MainTab:CreateLabel("Current: Parry Accuracy affects the parry window size")
-MainTab:CreateLabel("Lower % = Bigger window (forgiving)")
 
 MainTab:CreateToggle({ Name = "High Ping Compensation", CurrentValue = false, Flag = "HighPingCompensation", Callback = function(v) HighPingCompensation = v end })
 MainTab:CreateToggle({ Name = "Auto Pre-Click", CurrentValue = false, Flag = "AutoPostParry",
@@ -2054,20 +2179,6 @@ MainTab:CreateToggle({ Name = "Auto Pre-Click", CurrentValue = false, Flag = "Au
 		end
 	end
 })
-MainTab:CreateToggle({ Name = "Singularity Detection", CurrentValue = false, Flag = "SingularityDetection", Callback = function(v) Singularity_Detection = v end })
-MainTab:CreateToggle({ Name = "Infinity Detection", CurrentValue = false, Flag = "InfinityDetection", Callback = function(v) Infinity_Detection = v end })
-MainTab:CreateToggle({ Name = "Cooldown Protection", CurrentValue = false, Flag = "CooldownProtection", Callback = function(v) CooldownProtection = v end })
-MainTab:CreateToggle({ Name = "High Ping Protection", CurrentValue = false, Flag = "HighPingProtection", Callback = function(v) HighPingProtection = v end })
-MainTab:CreateToggle({ Name = "Death Slash Detection", CurrentValue = false, Flag = "DeathSlashDetection", Callback = function(v) Death_Slash_Detection = v end })
-MainTab:CreateToggle({ Name = "Anti Phantom", CurrentValue = false, Flag = "AntiPhantom",
-	Callback = function(v)
-		AntiPhantomEnabled = v
-		if v then SetupAntiPhantom()
-		else
-			if Connections["anti_phantom"] then Connections["anti_phantom"]:Disconnect(); Connections["anti_phantom"] = nil end
-		end
-	end
-})
 
 -- Auto Spam Parry
 local AutoSpamSection = MainTab:CreateSection("Auto Spam Parry")
@@ -2086,41 +2197,124 @@ MainTab:CreateToggle({
 	end
 })
 
-MainTab:CreateLabel("✓ CONNECTED TO LOBBY AP & AUTO PARRY | Triggers when EITHER fails 3+ times")
+-- ORBITAL MOVEMENT SECTION WITH COMPLETELY FIXED CAMERA CONTROLS
+local OrbitalSection = MainTab:CreateSection("Orbital Movement & Camera")
 
-MainTab:CreateSlider({
-	Name = "Trigger Distance",
-	Range = {15, 50},
-	Increment = 5,
-	Suffix = " units",
-	CurrentValue = 30,
-	Flag = "ProximityDistance",
+MainTab:CreateToggle({
+	Name = "Enable Orbit",
+	CurrentValue = false,
+	Flag = "enableOrbit",
 	Callback = function(v)
-		ProximityTriggerDistance = v
+		if v then
+			pcall(function()
+				OrbitalMovement:Start()
+			end)
+		else
+			pcall(function()
+				OrbitalMovement:Stop()
+			end)
+		end
+	end
+})
+
+MainTab:CreateToggle({
+	Name = "Free Camera Lock",
+	CurrentValue = false,
+	Flag = "freeCameraLock",
+	Callback = function(v)
+		OrbitalMovement:SetCameraLockEnabled(v)
+		if v and OrbitalMovement.Enabled then
+			Rayfield:Notify({
+				Title    = "Free Camera",
+				Content  = "Camera locked to ball - Move mouse to look around (NORMAL CONTROLS)",
+				Duration = 3,
+				Image    = nil
+			})
+		elseif not v and OrbitalMovement.Enabled then
+			Rayfield:Notify({
+				Title    = "Free Camera",
+				Content  = "Camera unlocked",
+				Duration = 2,
+				Image    = nil
+			})
+		end
+	end
+})
+
+MainTab:CreateButton({
+	Name = "Reset Camera Position",
+	Callback = function()
+		OrbitalMovement:ResetCamera()
+		Rayfield:Notify({
+			Title = "Camera Reset",
+			Content = "Camera position reset to default",
+			Duration = 1.5
+		})
 	end
 })
 
 MainTab:CreateSlider({
-	Name = "Close Range Threshold",
-	Range = {15, 35},
-	Increment = 5,
-	Suffix = " units",
-	CurrentValue = 25,
-	Flag = "CloseRangeThreshold",
-	Callback = function(v)
-		CLOSE_RANGE_THRESHOLD = v
-	end
+	Name = "Orbit Speed",
+	Range = {0.5, 20},
+	Increment = 0.5,
+	Suffix = "x",
+	CurrentValue = 8.0,
+	Flag = "OrbitSpeed",
+	Callback = function(v) OrbitalMovement:SetOrbitSpeed(v) end
 })
 
 MainTab:CreateSlider({
-	Name = "Max Attempts Before Spam",
-	Range = {1, 5},
+	Name = "Orbit Distance",
+	Range = {5, 50},
 	Increment = 1,
-	Suffix = " attempts",
-	CurrentValue = 3,
-	Flag = "MaxCloseRangeAttempts",
+	Suffix = "studs",
+	CurrentValue = 25,
+	Flag = "OrbitDistance",
+	Callback = function(v) OrbitalMovement:SetOrbitDistance(v) end
+})
+
+MainTab:CreateSlider({
+	Name = "Orbit Height",
+	Range = {-20, 20},
+	Increment = 1,
+	Suffix = "studs",
+	CurrentValue = 0,
+	Flag = "OrbitHeight",
+	Callback = function(v) OrbitalMovement:SetVerticalOffset(v) end
+})
+
+-- ── Detections Tab ───────────────────────────────────────────────────────────
+local DetectionsTab = Window:CreateTab("Detections", nil)
+
+local DetectionSection = DetectionsTab:CreateSection("Ball & Ability Detections")
+
+DetectionsTab:CreateToggle({ Name = "Singularity Detection", CurrentValue = false, Flag = "SingularityDetection", 
+	Callback = function(v) Singularity_Detection = v end
+})
+
+DetectionsTab:CreateToggle({ Name = "Infinity Detection", CurrentValue = false, Flag = "InfinityDetection", 
+	Callback = function(v) Infinity_Detection = v end
+})
+
+DetectionsTab:CreateToggle({ Name = "Cooldown Protection", CurrentValue = false, Flag = "CooldownProtection", 
+	Callback = function(v) CooldownProtection = v end
+})
+
+DetectionsTab:CreateToggle({ Name = "High Ping Protection", CurrentValue = false, Flag = "HighPingProtection", 
+	Callback = function(v) HighPingProtection = v end
+})
+
+DetectionsTab:CreateToggle({ Name = "Death Slash Detection", CurrentValue = false, Flag = "DeathSlashDetection", 
+	Callback = function(v) Death_Slash_Detection = v end
+})
+
+DetectionsTab:CreateToggle({ Name = "Anti Phantom", CurrentValue = false, Flag = "AntiPhantom",
 	Callback = function(v)
-		MAX_CLOSE_RANGE_ATTEMPTS = v
+		AntiPhantomEnabled = v
+		if v then SetupAntiPhantom()
+		else
+			if Connections["anti_phantom"] then Connections["anti_phantom"]:Disconnect(); Connections["anti_phantom"] = nil end
+		end
 	end
 })
 
@@ -2206,8 +2400,6 @@ MainTab:CreateToggle({
 	end
 })
 
-MainTab:CreateLabel("Triggerbot uses Auto Parry settings")
-
 -- ── Misc Tab ──────────────────────────────────────────────────────────────────
 local MiscTab = Window:CreateTab("Misc", nil)
 
@@ -2226,27 +2418,29 @@ ManualSpamTab:CreateToggle({
 				if gameProcessed then return end
 				if input.KeyCode == ManualSpamKey then
 					ManualSpamActive = not ManualSpamActive
-					if ManualSpamActive then
-						Rayfield:Notify({
-							Title    = "Manual Spam",
-							Content  = "Manual Spam ACTIVATED! 🔥",
-							Duration = 2,
-							Image    = nil
-						})
-						task.spawn(function()
-							while ManualSpamActive and ManualSpamEnabled do
-								DoManualSpam()
-								task.wait(ManualSpamWait)
-							end
-						end)
-					else
-						Rayfield:Notify({
-							Title    = "Manual Spam",
-							Content  = "Manual Spam DEACTIVATED! ⏹️",
-							Duration = 2,
-							Image    = nil
-						})
+					if ManualSpamNotifications then
+						if ManualSpamActive then
+							Rayfield:Notify({
+								Title    = "Manual Spam",
+								Content  = "ON 🔥",
+								Duration = 1,
+								Image    = nil
+							})
+						else
+							Rayfield:Notify({
+								Title    = "Manual Spam",
+								Content  = "OFF ⏹️",
+								Duration = 1,
+								Image    = nil
+							})
+						end
 					end
+					task.spawn(function()
+						while ManualSpamActive and ManualSpamEnabled do
+							DoManualSpam()
+							task.wait(ManualSpamWait)
+						end
+					end)
 				end
 			end)
 		else
@@ -2260,21 +2454,19 @@ ManualSpamTab:CreateToggle({
 })
 
 ManualSpamTab:CreateDropdown({
-	Name = "Toggle Keybind",
-	Options = {"Q", "E", "R", "F", "C", "V", "X", "Z", "T", "G", "B", "N", "M", "LeftShift", "LeftControl", "Space", "Tab", "CapsLock"},
-	CurrentOption = {"Q"},
+	Name = "Spam Mode",
+	Options = {"Legit", "Blatant"},
+	CurrentOption = {"Legit"},
 	MultipleOptions = false,
-	Flag = "ManualSpamKeybind",
-	Callback = function(v)
-		local keyMap = {
-			["Q"] = Enum.KeyCode.Q, ["E"] = Enum.KeyCode.E, ["R"] = Enum.KeyCode.R, ["F"] = Enum.KeyCode.F,
-			["C"] = Enum.KeyCode.C, ["V"] = Enum.KeyCode.V, ["X"] = Enum.KeyCode.X, ["Z"] = Enum.KeyCode.Z,
-			["T"] = Enum.KeyCode.T, ["G"] = Enum.KeyCode.G, ["B"] = Enum.KeyCode.B, ["N"] = Enum.KeyCode.N,
-			["M"] = Enum.KeyCode.M, ["LeftShift"] = Enum.KeyCode.LeftShift, ["LeftControl"] = Enum.KeyCode.LeftControl,
-			["Space"] = Enum.KeyCode.Space, ["Tab"] = Enum.KeyCode.Tab, ["CapsLock"] = Enum.KeyCode.CapsLock
-		}
-		ManualSpamKey = keyMap[v] or Enum.KeyCode.Q
-	end
+	Flag = "ManualSpamMode",
+	Callback = function(v) SpamMode = v end
+})
+
+ManualSpamTab:CreateToggle({
+	Name = "Toggle Notifications",
+	CurrentValue = true,
+	Flag = "ManualSpamNotif",
+	Callback = function(v) ManualSpamNotifications = v end
 })
 
 ManualSpamTab:CreateSlider({
@@ -2286,17 +2478,6 @@ ManualSpamTab:CreateSlider({
 	Flag = "ManualSpamSpeed",
 	Callback = function(v) ManualSpamWait = v / 1000 end
 })
-
-ManualSpamTab:CreateDropdown({
-	Name = "Manual Spam Mode",
-	Options = {"Legit", "Blatant"},
-	CurrentOption = {"Legit"},
-	MultipleOptions = false,
-	Flag = "ManualSpamMode",
-	Callback = function(v) SpamMode = v end
-})
-
-ManualSpamTab:CreateLabel("Press Q to toggle spam on/off")
 
 local VisualsSection = MiscTab:CreateSection("Visuals")
 
@@ -2486,6 +2667,7 @@ MiscTab:CreateToggle({ Name = "Ball Speed Stats", CurrentValue = false, Flag = "
 			statsCard.Visible = false
 			currentVelValue.Text = "—"
 			peakVelValue.Text    = "—"
+			spamSpeedValue.Text  = "—"
 			PeakVel = 0
 		end
 	end
@@ -2512,8 +2694,8 @@ end)
 
 -- ─── Notify load ─────────────────────────────────────────────────────────
 Rayfield:Notify({
-	Title    = "click",
-	Content  = "loaded successfully | improved auto parry v2.0 | ✓ LOBBY AP & AUTO PARRY → AUTO SPAM PARRY CONNECTED",
+	Title    = "click + Orbital",
+	Content  = "Loaded",
 	Duration = 3,
 	Image    = nil
 })
