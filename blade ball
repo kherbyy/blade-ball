@@ -31,7 +31,6 @@ local function convertTableToString(inputTable)
 	return table.concat(inputTable, ", ")
 end
 
--- ─── Services ────────────────────────────────────────────────────────────────
 local UserInputService   = cloneref(game:GetService('UserInputService'))
 local ContentProvider    = cloneref(game:GetService('ContentProvider'))
 local TweenService       = cloneref(game:GetService('TweenService'))
@@ -46,7 +45,6 @@ local Debris             = cloneref(game:GetService('Debris'))
 local LocalPlayer  = Players.LocalPlayer
 local mouse        = LocalPlayer:GetMouse()
 
--- ─── Config ──────────────────────────────────────────────────────────────────
 if not isfolder("click") then makefolder("click") end
 
 local Config = {}
@@ -81,7 +79,6 @@ end
 
 setmetatable(Config, Config)
 
--- ─── Shared state ────────────────────────────────────────────────────────────
 local _config = Config:load(game.GameId)
 
 local function flag_type(flag, ftype)
@@ -94,10 +91,8 @@ local function saveFlag(flag, value)
 	Config:save(game.GameId, _config)
 end
 
--- ─── Game wait ───────────────────────────────────────────────────────────────
 repeat task.wait() until game:IsLoaded()
 
--- ─── Game references ─────────────────────────────────────────────────────────
 local ReplicatedStorage    = game:GetService("ReplicatedStorage")
 local Workspace            = game:GetService("Workspace")
 local ContextActionService = game:GetService("ContextActionService")
@@ -107,6 +102,7 @@ local Character  = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local Humanoid   = Character:WaitForChild("Humanoid")
 local Alive      = Workspace:FindFirstChild("Alive")
 
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local AutoParry = {}
 AutoParry.Previous_Positions  = {}
@@ -172,8 +168,6 @@ function AutoParry.GetLobbyBalls()
 	return {}
 end
 
-
-
 local OrbitalMovement = {}
 OrbitalMovement.Enabled = false
 OrbitalMovement.OrbitSpeed = 8.0
@@ -196,11 +190,10 @@ function OrbitalMovement:Start()
 	self.Enabled = true
 	self.Angle = 0
 	
-	-- Initialize camera angles
 	self.CameraYaw = 0
 	self.CameraPitch = 0
 	
-	self.ActiveConnection = game:GetService("RunService").Heartbeat:Connect(function()
+	self.ActiveConnection = RunService.Heartbeat:Connect(function()
 		if not self.Enabled then return end
 		
 		local char = LocalPlayer.Character
@@ -209,38 +202,30 @@ function OrbitalMovement:Start()
 		local rootPart = char:FindFirstChild("HumanoidRootPart")
 		if not rootPart then return end
 		
-		-- Get the ball
 		local ball = AutoParry.GetBall()
 		
 		if not ball then 
-			-- If no ball exists, stop orbiting
 			self:Stop()
 			return
 		end
 		
-		-- Increment angle to orbit
 		self.Angle = self.Angle + (self.OrbitSpeed * 0.03)
 		
-		-- Get ball position
 		local ballPos = ball.Position
 		
-		-- Calculate orbit coordinates (circular orbit around ball)
 		local radius = self.OrbitDistance
 		local orbX = math.cos(self.Angle) * radius
 		local orbZ = math.sin(self.Angle) * radius
 		
-		-- Calculate target position (floating around ball)
 		local targetX = ballPos.X + orbX
 		local targetY = ballPos.Y + self.VerticalOffset
 		local targetZ = ballPos.Z + orbZ
 		
 		local targetPos = Vector3.new(targetX, targetY, targetZ)
 		
-		-- FLOAT around the ball - use CFrame to position directly
 		rootPart.CFrame = CFrame.new(targetPos) * CFrame.Angles(0, self.Angle, 0)
 	end)
 	
-	-- Start camera lock if enabled
 	if self.CameraLockEnabled then
 		self:StartCameraLock()
 	end
@@ -255,7 +240,6 @@ function OrbitalMovement:Stop()
 		self.ActiveConnection = nil
 	end
 	
-	-- Stop camera lock
 	self:StopCameraLock()
 end
 
@@ -289,7 +273,6 @@ function OrbitalMovement:StartCameraLock()
 	local camera = Workspace.CurrentCamera
 	if not camera then return end
 	
-	-- Set up mouse movement tracking with COMPLETELY NORMAL controls
 	self:_SetupMouseTracking()
 	
 	self.CameraConnection = RunService.RenderStepped:Connect(function()
@@ -306,36 +289,31 @@ function OrbitalMovement:StartCameraLock()
 		
 		local ballPos = ball.Position
 		
-		-- Calculate camera position based on yaw, pitch, and distance
 		local yawRad = math.rad(self.CameraYaw)
 		local pitchRad = math.rad(self.CameraPitch)
 		
-		-- Spherical coordinates to Cartesian
 		local camX = ballPos.X + math.cos(yawRad) * math.cos(pitchRad) * self.CameraDistance
 		local camY = ballPos.Y + math.sin(pitchRad) * self.CameraDistance
 		local camZ = ballPos.Z + math.sin(yawRad) * math.cos(pitchRad) * self.CameraDistance
 		
 		local cameraPos = Vector3.new(camX, camY, camZ)
 		
-		-- Make camera look at the ball
 		local cameraCFrame = CFrame.lookAt(cameraPos, ballPos)
 		
-		-- Apply camera position
 		camera.CFrame = cameraCFrame
 	end)
 end
 
 function OrbitalMovement:_SetupMouseTracking()
-	-- Track mouse movement with COMPLETELY NORMAL orientation
 	local mouseMoveConn = UserInputService.InputChanged:Connect(function(input, gameProcessed)
 		if gameProcessed then return end
 		if input.UserInputType == Enum.UserInputType.MouseMovement then
 			if self.CameraLockEnabled then
 				local delta = Vector2.new(input.Delta.X, input.Delta.Y)
 				
-				self.CameraYaw = self.CameraYaw + delta.X * self.MouseSensitivity  -- FIXED: + for right
+				self.CameraYaw = self.CameraYaw + delta.X * self.MouseSensitivity
 				self.CameraPitch = math.clamp(
-					self.CameraPitch + delta.Y * self.MouseSensitivity,  -- FIXED: + for up
+					self.CameraPitch + delta.Y * self.MouseSensitivity,
 					-60,
 					60
 				)
@@ -343,13 +321,11 @@ function OrbitalMovement:_SetupMouseTracking()
 		end
 	end)
 	
-	-- Mouse wheel for zoom (normal: scroll up = zoom in)
 	local wheelConn = UserInputService.InputChanged:Connect(function(input, gameProcessed)
 		if gameProcessed then return end
 		if input.UserInputType == Enum.UserInputType.MouseWheel then
 			if self.CameraLockEnabled then
 				local delta = input.Position.Z
-				-- NORMAL zoom: scroll up (positive) = zoom in (decrease distance)
 				self.CameraDistance = math.clamp(
 					self.CameraDistance - delta * 3,
 					5,
@@ -359,7 +335,6 @@ function OrbitalMovement:_SetupMouseTracking()
 		end
 	end)
 	
-	-- Store connections to clean up later
 	self.CameraControlConnections = {
 		mouseMoveConn,
 		wheelConn
@@ -374,7 +349,6 @@ function OrbitalMovement:StopCameraLock()
 		self.CameraConnection = nil
 	end
 	
-	-- Clean up mouse control connections
 	if self.CameraControlConnections then
 		for _, conn in ipairs(self.CameraControlConnections) do
 			pcall(function()
@@ -391,6 +365,151 @@ function OrbitalMovement:ResetCamera()
 	self.CameraDistance = 30
 end
 
+local SemiImmortal = {}
+SemiImmortal.Enabled = false
+SemiImmortal.Distance = 25
+SemiImmortal.Height = 0
+SemiImmortal.Speed = 2
+SemiImmortal.ActiveConnection = nil
+SemiImmortal.VisualizerEnabled = false
+SemiImmortal.VisualizerPart = nil
+SemiImmortal.LastPosition = nil
+SemiImmortal.PositionChangeTime = 0
+
+function SemiImmortal:Start()
+	if self.ActiveConnection then return end
+	
+	self.Enabled = true
+	self.LastPosition = nil
+	self.PositionChangeTime = tick()
+	
+	if self.VisualizerEnabled and not self.VisualizerPart then
+		self:CreateVisualizer()
+	end
+	
+	self.ActiveConnection = RunService.Heartbeat:Connect(function()
+		if not self.Enabled then return end
+		
+		local char = LocalPlayer.Character
+		if not char then return end
+		
+		local rootPart = char:FindFirstChild("HumanoidRootPart")
+		if not rootPart then return end
+		
+		local ball = AutoParry.GetBall()
+		if not ball then 
+			self:Stop()
+			return
+		end
+		
+		local currentTime = tick()
+		if currentTime - self.PositionChangeTime >= (1 / self.Speed) then
+			self.PositionChangeTime = currentTime
+			
+			local ballPos = ball.Position
+			
+			local angle = math.random() * 2 * math.pi
+			local radius = self.Distance * (0.8 + math.random() * 0.4)
+			
+			local orbX = math.cos(angle) * radius
+			local orbZ = math.sin(angle) * radius
+			
+			local heightOffset = self.Height + (math.random() * 4 - 2)
+			
+			local targetX = ballPos.X + orbX
+			local targetY = ballPos.Y + heightOffset
+			local targetZ = ballPos.Z + orbZ
+			
+			local targetPos = Vector3.new(targetX, targetY, targetZ)
+			
+			self.LastPosition = targetPos
+			
+			rootPart.CFrame = CFrame.new(targetPos) * CFrame.Angles(0, math.rad(math.random(0, 360)), 0)
+		end
+		
+		if self.VisualizerEnabled and self.VisualizerPart and self.LastPosition then
+			self.VisualizerPart.CFrame = CFrame.new(self.LastPosition)
+		end
+	end)
+end
+
+function SemiImmortal:Stop()
+	self.Enabled = false
+	if self.ActiveConnection then
+		pcall(function()
+			self.ActiveConnection:Disconnect()
+		end)
+		self.ActiveConnection = nil
+	end
+	
+	self:HideVisualizer()
+end
+
+function SemiImmortal:CreateVisualizer()
+	if self.VisualizerPart then
+		pcall(function()
+			self.VisualizerPart:Destroy()
+		end)
+	end
+	
+	self.VisualizerPart = Instance.new("Part")
+	self.VisualizerPart.Name = "SemiImmortalVisualizer"
+	self.VisualizerPart.Shape = Enum.PartType.Ball
+	self.VisualizerPart.Size = Vector3.new(3, 3, 3)
+	self.VisualizerPart.BrickColor = BrickColor.new("Really red")
+	self.VisualizerPart.Material = Enum.Material.Neon
+	self.VisualizerPart.Transparency = 0.3
+	self.VisualizerPart.Anchored = true
+	self.VisualizerPart.CanCollide = false
+	self.VisualizerPart.Parent = Workspace
+	
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "VisualizerLabel"
+	billboard.Size = UDim2.new(0, 100, 0, 30)
+	billboard.StudsOffset = Vector3.new(0, 2, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = self.VisualizerPart
+	
+	local text = Instance.new("TextLabel")
+	text.Size = UDim2.new(1, 0, 1, 0)
+	text.BackgroundTransparency = 1
+	text.Text = "REAL POSITION"
+	text.TextColor3 = Color3.new(1, 1, 1)
+	text.TextSize = 14
+	text.Font = Enum.Font.GothamBold
+	text.Parent = billboard
+end
+
+function SemiImmortal:HideVisualizer()
+	if self.VisualizerPart then
+		pcall(function()
+			self.VisualizerPart:Destroy()
+		end)
+		self.VisualizerPart = nil
+	end
+end
+
+function SemiImmortal:SetVisualizerEnabled(enabled)
+	self.VisualizerEnabled = enabled
+	
+	if enabled and self.Enabled then
+		self:CreateVisualizer()
+	elseif not enabled then
+		self:HideVisualizer()
+	end
+end
+
+function SemiImmortal:SetDistance(distance)
+	self.Distance = math.max(5, math.min(distance, 50))
+end
+
+function SemiImmortal:SetHeight(height)
+	self.Height = math.clamp(height, -20, 20)
+end
+
+function SemiImmortal:SetSpeed(speed)
+	self.Speed = math.max(0.5, math.min(speed, 10))
+end
 
 local AutoParry_Improved = {}
 
@@ -733,11 +852,14 @@ function AutoParry_Improved.ShouldParryWithPrediction(
 end
 
 function AutoParry_Improved.UpdateBallHistoryOptimized(ball, velocityHistory, dotHistories, maxHistory)
+	if not ball then return false end
 	local zoomies = ball:FindFirstChild('zoomies')
 	if not zoomies then return false end
 	
 	local velocity = zoomies.VectorVelocity
-	local playerPos = game:GetService('Players').LocalPlayer.Character.PrimaryPart.Position
+	local char = LocalPlayer.Character
+	if not char or not char.PrimaryPart then return false end
+	local playerPos = char.PrimaryPart.Position
 	
 	if not velocityHistory[ball] then velocityHistory[ball] = {} end
 	table.insert(velocityHistory[ball], velocity)
@@ -757,7 +879,6 @@ function AutoParry_Improved.UpdateBallHistoryOptimized(ball, velocityHistory, do
 	return true
 end
 
--- ─── State variables ─────────────────────────────────────────────────────────
 local Aerodynamic            = false
 local AeroTime               = tick()
 local AeroDynamicDetected    = false
@@ -862,54 +983,39 @@ local ManualSpamWait              = 0.05
 local ManualSpamConnection        = nil
 local ManualSpamNotifications     = true
 
--- ✓ AUTO SPAM PARRY COUNTERS - CONNECTED TO BOTH LOBBY AP AND AUTO PARRY
 local LobbyCloseRangeCounter = 0
 local AutoParryCloseRangeCounter = 0
 local CLOSE_RANGE_THRESHOLD = 25
-local MAX_CLOSE_RANGE_ATTEMPTS = 2
+local MID_RANGE_THRESHOLD = 45
+local MAX_CLOSE_RANGE_ATTEMPTS = 1
+local MAX_SPEED_THRESHOLD = 400
 local ProximityTriggerDistance = 30
 local CurrentBallId = nil
+local SpeedSpamActive = false
+local SpeedSpamCounter = 0
+local SPEED_SPAM_THRESHOLD = 3
 
--- ✓ DYNAMIC SPAM SPEED - SCALES WITH BALL VELOCITY
 local function CalculateDynamicSpamDelay(ballSpeed)
-	if ballSpeed >= 1500 then
-		return 0.008
-	elseif ballSpeed >= 1200 then
-		return 0.01
-	elseif ballSpeed >= 1000 then
-		return 0.012
-	elseif ballSpeed >= 800 then
-		return 0.015
-	elseif ballSpeed >= 700 then
-		return 0.018
-	elseif ballSpeed >= 600 then
-		return 0.02
-	elseif ballSpeed >= 500 then
-		return 0.025
-	elseif ballSpeed >= 400 then
-		return 0.03
-	elseif ballSpeed >= 300 then
-		return 0.035
-	elseif ballSpeed >= 200 then
-		return 0.04
-	elseif ballSpeed >= 100 then
-		return 0.045
-	else
-		return 0.05
-	end
+	return 0.001
 end
 
--- ✓ CONTINUOUS SPEED TRACKING FOR DYNAMIC SPAM (FIXED NIL ERROR)
 local BallSpeedHistory = {}
 local MaxSpeedHistory = 10
 local CurrentBallSpeed = 0
+local SpeedIncreasingCounter = 0
+local AutoSpamActiveStatus = false
 
 local function UpdateBallSpeed()
-	local success, ball = pcall(AutoParry.GetBall)
-	if success and ball then
+	local ball = AutoParry.GetBall()
+	if ball then
 		local zoomies = ball:FindFirstChild('zoomies')
 		if zoomies then
 			local newSpeed = zoomies.VectorVelocity.Magnitude
+			if newSpeed > CurrentBallSpeed + 50 then
+				SpeedIncreasingCounter = SpeedIncreasingCounter + 1
+			else
+				SpeedIncreasingCounter = 0
+			end
 			CurrentBallSpeed = newSpeed
 			
 			table.insert(BallSpeedHistory, newSpeed)
@@ -929,10 +1035,7 @@ local function GetAverageBallSpeed()
 	return sum / #BallSpeedHistory
 end
 
--- Connect speed update to heartbeat (with pcall for safety)
-RunService.Heartbeat:Connect(function()
-	pcall(UpdateBallSpeed)
-end)
+RunService.Heartbeat:Connect(UpdateBallSpeed)
 
 local soundOptions = {
 	["EEYUH!"]                              = "rbxassetid://16190782181",
@@ -952,7 +1055,6 @@ local soundOptions = {
 	["Tears in the Rain"]                   = "rbxassetid://129710845038263",
 }
 
--- ─── Ping helpers ────────────────────────────────────────────────────────────
 local function Update_Ping()
 	local currentPing = game:GetService('Stats').Network.ServerStatsItem['Data Ping']:GetValue()
 	table.insert(PingHistory, 1, currentPing)
@@ -966,7 +1068,6 @@ local function GetAveragePing()
 	return sum / #PingHistory
 end
 
--- ─── Remote hook ─────────────────────────────────────────────────────────────
 local function IsValidRemoteArgs(args)
 	return #args == 7 and
 		type(args[2]) == "string" and
@@ -994,14 +1095,11 @@ if Is_Supported_Test then
 	end))
 end
 
--- ─── Anim storage ────────────────────────────────────────────────────────────
 for _, anim in pairs(ReplicatedStorage.Misc.Emotes:GetChildren()) do
 	if anim:IsA("Animation") and anim:GetAttribute("EmoteName") then
 		AnimStorage[anim:GetAttribute("EmoteName")] = anim
 	end
 end
-
--- ─── AutoParry core (continued) ──────────────────────────────────────────────
 
 AutoParry.ParryAnim = function(useGrabParryOnly)
 	local ParryAnim
@@ -1293,7 +1391,6 @@ local function DoManualSpam()
 	end
 end
 
--- ─── Anti-phantom helpers ─────────────────────────────────────────────────────
 local function BlockMovement(actionName, inputState, inputObject)
 	return Enum.ContextActionResult.Sink
 end
@@ -1323,7 +1420,6 @@ local function SetupAntiPhantom()
 	end)
 end
 
--- ─── Viz ─────────────────────────────────────────────────────────────────────
 local VizEnabled = false
 local Viz = Instance.new("Part")
 Viz.Shape = Enum.PartType.Ball
@@ -1364,7 +1460,6 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
--- ─── Optimize ─────────────────────────────────────────────────────────────────
 local OriginalLighting = {}
 local function Optimize(state)
 	if state then
@@ -1397,7 +1492,6 @@ local function Optimize(state)
 	end
 end
 
--- ─── Avatar helpers ───────────────────────────────────────────────────────────
 local function ClearHead(char)
 	local head = char:WaitForChild("Head")
 	head.Transparency = 1
@@ -1461,7 +1555,6 @@ local function EnsureModifications()
 	if not char:FindFirstChild("KorbloxLeg") then Korbloxify(char) end
 end
 
--- ─── AntiAFK ─────────────────────────────────────────────────────────────────
 local function Enable_ANTIAFK()
 	local GC = getconnections or get_signal_cons
 	if GC then
@@ -1480,7 +1573,6 @@ local function Disable_ANTIAFK()
 	if AntiAFKConnection then AntiAFKConnection:Disconnect(); AntiAFKConnection = nil end
 end
 
--- ─── Remote events ────────────────────────────────────────────────────────────
 ReplicatedStorage.Remotes.DeathBall.OnClientEvent:Connect(function(value)
 	DeathSlashDetection = value
 end)
@@ -1497,11 +1589,12 @@ local parriedBalls = {}
 local isTriggerbotEnabled = false
 local triggerParriedBalls = {}
 
--- ─── Ball events ─────────────────────────────────────────────────────────────
 Workspace.Balls.ChildAdded:Connect(function(ball)
 	Parried = false; LobbyParried = false; wasBackwards[ball] = false; PredictedPositions = {}
 	LobbyCloseRangeCounter = 0
 	AutoParryCloseRangeCounter = 0
+	SpeedSpamCounter = 0
+	SpeedSpamActive = false
 	CurrentBallId = ball
 
 	if _config._flags["autoSpamModule"] then
@@ -1518,6 +1611,8 @@ Workspace.Balls.ChildRemoved:Connect(function(child)
 	if child == CurrentBallId then
 		LobbyCloseRangeCounter = 0
 		AutoParryCloseRangeCounter = 0
+		SpeedSpamCounter = 0
+		SpeedSpamActive = false
 		CurrentBallId = nil
 	end
 
@@ -1573,9 +1668,8 @@ Runtime.ChildAdded:Connect(function(value)
 	if value.Name == 'Tornado' then AeroTime = tick(); Aerodynamic = true end
 end)
 
-RunService.Heartbeat:Connect(function() Update_Ping() end)
+RunService.Heartbeat:Connect(Update_Ping)
 
--- ─── AUTO SPAM PARRY - CONNECTED TO BOTH LOBBY AP AND AUTO PARRY ──────────────
 local AutoSpamParryEnabled = false
 local AutoSpamParryConnection = nil
 local IsAutoSpamActive = false
@@ -1586,6 +1680,7 @@ local function StartAutoSpamParry()
 	AutoSpamParryConnection = RunService.PreSimulation:Connect(function()
 		if not AutoSpamParryEnabled then
 			IsAutoSpamActive = false
+			AutoSpamActiveStatus = false
 			if AutoSpamParryConnection then
 				AutoSpamParryConnection:Disconnect()
 				AutoSpamParryConnection = nil
@@ -1596,6 +1691,7 @@ local function StartAutoSpamParry()
 		local ball = AutoParry.GetBall()
 		if not ball then
 			IsAutoSpamActive = false
+			AutoSpamActiveStatus = false
 			return
 		end
 
@@ -1603,20 +1699,31 @@ local function StartAutoSpamParry()
 		local zoomies = ball:FindFirstChild('zoomies')
 		if not zoomies then
 			IsAutoSpamActive = false
+			AutoSpamActiveStatus = false
 			return
 		end
 
 		local totalFailures = LobbyCloseRangeCounter + AutoParryCloseRangeCounter
 		local distance = (LocalPlayer.Character.PrimaryPart.Position - ball.Position).Magnitude
 		local speed = zoomies.VectorVelocity.Magnitude
+		local shouldActivate = false
 
-		if ballTarget == tostring(LocalPlayer) and totalFailures >= MAX_CLOSE_RANGE_ATTEMPTS and distance <= ProximityTriggerDistance then
+		if ballTarget == tostring(LocalPlayer) then
+			if distance <= CLOSE_RANGE_THRESHOLD and totalFailures >= MAX_CLOSE_RANGE_ATTEMPTS then
+				shouldActivate = true
+			elseif distance <= MID_RANGE_THRESHOLD and SpeedIncreasingCounter >= SPEED_SPAM_THRESHOLD then
+				shouldActivate = true
+			elseif speed >= MAX_SPEED_THRESHOLD and distance <= MID_RANGE_THRESHOLD then
+				shouldActivate = true
+			end
+		end
+
+		if shouldActivate then
 			IsAutoSpamActive = true
-			
+			AutoSpamActiveStatus = true
 			if next(ParryRemotes) then
 				AutoParry.PerformRemoteParry(SelectedParryType)
 				Parries += 1
-				
 				local spamDelay = CalculateDynamicSpamDelay(speed)
 				task.wait(spamDelay)
 			end
@@ -1624,21 +1731,23 @@ local function StartAutoSpamParry()
 			if IsAutoSpamActive then
 				LobbyCloseRangeCounter = 0
 				AutoParryCloseRangeCounter = 0
+				SpeedSpamCounter = 0
 			end
 			IsAutoSpamActive = false
+			AutoSpamActiveStatus = false
 		end
 	end)
 end
 
 local function StopAutoSpamParry()
 	IsAutoSpamActive = false
+	AutoSpamActiveStatus = false
 	if AutoSpamParryConnection then
 		AutoSpamParryConnection:Disconnect()
 		AutoSpamParryConnection = nil
 	end
 end
 
--- ─── Ball Stats Card UI ───────────────────────────────────────────────────────
 local mainLocalPlayer = Players.LocalPlayer
 
 local statsGui = Instance.new("ScreenGui")
@@ -1649,8 +1758,8 @@ statsGui.DisplayOrder = 999
 
 local statsCard = Instance.new("Frame")
 statsCard.Name = "Card"
-statsCard.Size = UDim2.new(0, 250, 0, 160)
-statsCard.Position = UDim2.new(1, -265, 0, 10)
+statsCard.Size = UDim2.new(0, 280, 0, 190)
+statsCard.Position = UDim2.new(1, -295, 0, 10)
 statsCard.AnchorPoint = Vector2.new(0, 0)
 statsCard.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 statsCard.BackgroundTransparency = 0.05
@@ -1700,7 +1809,7 @@ titleLabel.Text = "Ball Stats"
 titleLabel.Parent = titleBar
 
 local contentArea = Instance.new("Frame")
-contentArea.Size = UDim2.new(1, -28, 0, 116)
+contentArea.Size = UDim2.new(1, -28, 0, 146)
 contentArea.Position = UDim2.new(0, 14, 0, 40)
 contentArea.BackgroundTransparency = 1
 contentArea.Parent = statsCard
@@ -1745,6 +1854,35 @@ end
 local currentVelValue = MakeStatRow(contentArea, "Current Velocity", Color3.fromRGB(255, 160, 50), 1)
 local peakVelValue    = MakeStatRow(contentArea, "Peak Velocity",    Color3.fromRGB(100, 200, 255), 2)
 local spamSpeedValue  = MakeStatRow(contentArea, "Spam Speed (ms)",  Color3.fromRGB(50, 255, 100), 3)
+
+local autoSpamRow = Instance.new("Frame")
+autoSpamRow.Size = UDim2.new(1, 0, 0, 25)
+autoSpamRow.BackgroundTransparency = 1
+autoSpamRow.LayoutOrder = 4
+autoSpamRow.Parent = contentArea
+
+local autoSpamLabel = Instance.new("TextLabel")
+autoSpamLabel.Size = UDim2.new(0.5, 0, 0, 13)
+autoSpamLabel.Position = UDim2.new(0, 0, 0, 0)
+autoSpamLabel.BackgroundTransparency = 1
+autoSpamLabel.TextColor3 = Color3.fromRGB(165, 165, 185)
+autoSpamLabel.TextSize = 11
+autoSpamLabel.Font = Enum.Font.Gotham
+autoSpamLabel.TextXAlignment = Enum.TextXAlignment.Left
+autoSpamLabel.Text = "Auto Spam"
+autoSpamLabel.Parent = autoSpamRow
+
+local autoSpamValue = Instance.new("TextLabel")
+autoSpamValue.Size = UDim2.new(0.5, 0, 0, 18)
+autoSpamValue.Position = UDim2.new(0.5, 0, 0, 0)
+autoSpamValue.BackgroundTransparency = 1
+autoSpamValue.TextColor3 = Color3.fromRGB(255, 0, 0)
+autoSpamValue.TextSize = 18
+autoSpamValue.Font = Enum.Font.GothamBold
+autoSpamValue.TextXAlignment = Enum.TextXAlignment.Right
+autoSpamValue.Text = "OFF"
+autoSpamValue.Parent = autoSpamRow
+
 local PeakVel = 0
 local BallStatsEnabled = false
 
@@ -1770,13 +1908,18 @@ RunService.RenderStepped:Connect(function()
 			spamSpeedValue.Text  = "—"
 			PeakVel = 0
 		end
+		
+		if AutoSpamActiveStatus then
+			autoSpamValue.Text = "ON"
+			autoSpamValue.TextColor3 = Color3.fromRGB(0, 255, 0)
+		else
+			autoSpamValue.Text = "OFF"
+			autoSpamValue.TextColor3 = Color3.fromRGB(255, 0, 0)
+		end
 	else
 		statsCard.Visible = false
 	end
 end)
-
-
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
 	Name            = "click + Orbital",
@@ -1795,10 +1938,8 @@ local Window = Rayfield:CreateWindow({
 	KeySystem = false
 })
 
--- ── Main Tab ─────────────────────────────────────────────────────────────────
 local MainTab = Window:CreateTab("Main", nil)
 
--- Lobby Auto Parry
 local LobbyAPSection = MainTab:CreateSection("Lobby Auto Parry")
 
 MainTab:CreateToggle({
@@ -1892,7 +2033,6 @@ MainTab:CreateDropdown({
 	Callback = function(v) LobbyParryType = v end
 })
 
--- Auto Parry
 local AutoParrySection = MainTab:CreateSection("Auto Parry")
 
 MainTab:CreateToggle({
@@ -2180,7 +2320,6 @@ MainTab:CreateToggle({ Name = "Auto Pre-Click", CurrentValue = false, Flag = "Au
 	end
 })
 
--- Auto Spam Parry
 local AutoSpamSection = MainTab:CreateSection("Auto Spam Parry")
 
 MainTab:CreateToggle({
@@ -2197,15 +2336,19 @@ MainTab:CreateToggle({
 	end
 })
 
--- ORBITAL MOVEMENT SECTION WITH COMPLETELY FIXED CAMERA CONTROLS
-local OrbitalSection = MainTab:CreateSection("Orbital Movement & Camera")
+local BlatantTab = Window:CreateTab("Blatant", nil)
 
-MainTab:CreateToggle({
+local OrbitSection = BlatantTab:CreateSection("Orbital Movement")
+
+BlatantTab:CreateToggle({
 	Name = "Enable Orbit",
 	CurrentValue = false,
 	Flag = "enableOrbit",
 	Callback = function(v)
 		if v then
+			if SemiImmortal.Enabled then
+				SemiImmortal:Stop()
+			end
 			pcall(function()
 				OrbitalMovement:Start()
 			end)
@@ -2217,43 +2360,49 @@ MainTab:CreateToggle({
 	end
 })
 
-MainTab:CreateToggle({
+BlatantTab:CreateToggle({
 	Name = "Free Camera Lock",
 	CurrentValue = false,
 	Flag = "freeCameraLock",
 	Callback = function(v)
 		OrbitalMovement:SetCameraLockEnabled(v)
 		if v and OrbitalMovement.Enabled then
-			Rayfield:Notify({
-				Title    = "Free Camera",
-				Content  = "Camera locked to ball - Move mouse to look around (NORMAL CONTROLS)",
-				Duration = 3,
-				Image    = nil
-			})
+			if Rayfield then
+				Rayfield:Notify({
+					Title    = "Free Camera",
+					Content  = "Camera locked to ball - Move mouse to look around",
+					Duration = 3,
+					Image    = nil
+				})
+			end
 		elseif not v and OrbitalMovement.Enabled then
+			if Rayfield then
+				Rayfield:Notify({
+					Title    = "Free Camera",
+					Content  = "Camera unlocked",
+					Duration = 2,
+					Image    = nil
+				})
+			end
+		end
+	end
+})
+
+BlatantTab:CreateButton({
+	Name = "Reset Camera Position",
+	Callback = function()
+		OrbitalMovement:ResetCamera()
+		if Rayfield then
 			Rayfield:Notify({
-				Title    = "Free Camera",
-				Content  = "Camera unlocked",
-				Duration = 2,
-				Image    = nil
+				Title = "Camera Reset",
+				Content = "Camera position reset to default",
+				Duration = 1.5
 			})
 		end
 	end
 })
 
-MainTab:CreateButton({
-	Name = "Reset Camera Position",
-	Callback = function()
-		OrbitalMovement:ResetCamera()
-		Rayfield:Notify({
-			Title = "Camera Reset",
-			Content = "Camera position reset to default",
-			Duration = 1.5
-		})
-	end
-})
-
-MainTab:CreateSlider({
+BlatantTab:CreateSlider({
 	Name = "Orbit Speed",
 	Range = {0.5, 20},
 	Increment = 0.5,
@@ -2263,7 +2412,7 @@ MainTab:CreateSlider({
 	Callback = function(v) OrbitalMovement:SetOrbitSpeed(v) end
 })
 
-MainTab:CreateSlider({
+BlatantTab:CreateSlider({
 	Name = "Orbit Distance",
 	Range = {5, 50},
 	Increment = 1,
@@ -2273,7 +2422,7 @@ MainTab:CreateSlider({
 	Callback = function(v) OrbitalMovement:SetOrbitDistance(v) end
 })
 
-MainTab:CreateSlider({
+BlatantTab:CreateSlider({
 	Name = "Orbit Height",
 	Range = {-20, 20},
 	Increment = 1,
@@ -2283,7 +2432,67 @@ MainTab:CreateSlider({
 	Callback = function(v) OrbitalMovement:SetVerticalOffset(v) end
 })
 
--- ── Detections Tab ───────────────────────────────────────────────────────────
+local SemiImmortalSection = BlatantTab:CreateSection("Semi Immortal")
+
+BlatantTab:CreateToggle({
+	Name = "Enable Semi Immortal",
+	CurrentValue = false,
+	Flag = "enableSemiImmortal",
+	Callback = function(v)
+		if v then
+			if OrbitalMovement.Enabled then
+				OrbitalMovement:Stop()
+			end
+			pcall(function()
+				SemiImmortal:Start()
+			end)
+		else
+			pcall(function()
+				SemiImmortal:Stop()
+			end)
+		end
+	end
+})
+
+BlatantTab:CreateToggle({
+	Name = "Show Visualizer",
+	CurrentValue = false,
+	Flag = "semiImmortalVisualizer",
+	Callback = function(v)
+		SemiImmortal:SetVisualizerEnabled(v)
+	end
+})
+
+BlatantTab:CreateSlider({
+	Name = "Movement Distance",
+	Range = {5, 50},
+	Increment = 1,
+	Suffix = "studs",
+	CurrentValue = 25,
+	Flag = "semiImmortalDistance",
+	Callback = function(v) SemiImmortal:SetDistance(v) end
+})
+
+BlatantTab:CreateSlider({
+	Name = "Height Offset",
+	Range = {-20, 20},
+	Increment = 1,
+	Suffix = "studs",
+	CurrentValue = 0,
+	Flag = "semiImmortalHeight",
+	Callback = function(v) SemiImmortal:SetHeight(v) end
+})
+
+BlatantTab:CreateSlider({
+	Name = "Movement Speed",
+	Range = {0.5, 10},
+	Increment = 0.5,
+	Suffix = "x",
+	CurrentValue = 2,
+	Flag = "semiImmortalSpeed",
+	Callback = function(v) SemiImmortal:SetSpeed(v) end
+})
+
 local DetectionsTab = Window:CreateTab("Detections", nil)
 
 local DetectionSection = DetectionsTab:CreateSection("Ball & Ability Detections")
@@ -2318,7 +2527,6 @@ DetectionsTab:CreateToggle({ Name = "Anti Phantom", CurrentValue = false, Flag =
 	end
 })
 
--- Triggerbot
 local TrigSection = MainTab:CreateSection("Triggerbot")
 
 MainTab:CreateToggle({
@@ -2353,9 +2561,7 @@ MainTab:CreateToggle({
 				local pingedValued = game:GetService('Stats').Network.ServerStatsItem['Data Ping']:GetValue()
 				local ballPos = ball.Position
 				local playerPos = character.PrimaryPart.Position
-				local BFP = ballPos
-				local PFP = playerPos
-				local distance = (PFP-BFP).Magnitude
+				local distance = (playerPos - ballPos).Magnitude
 				
 				local parryAccuracy = AutoParry_Improved.CalculateFinalParryAccuracy(
 					speed,
@@ -2400,10 +2606,8 @@ MainTab:CreateToggle({
 	end
 })
 
--- ── Misc Tab ──────────────────────────────────────────────────────────────────
 local MiscTab = Window:CreateTab("Misc", nil)
 
--- ── Manual Spam Tab ───────────────────────────────────────────────────────────
 local ManualSpamTab = Window:CreateTab("Manual Spam", nil)
 local ManualSpamSection = ManualSpamTab:CreateSection("Manual Spam Parry")
 
@@ -2418,7 +2622,7 @@ ManualSpamTab:CreateToggle({
 				if gameProcessed then return end
 				if input.KeyCode == ManualSpamKey then
 					ManualSpamActive = not ManualSpamActive
-					if ManualSpamNotifications then
+					if ManualSpamNotifications and Rayfield then
 						if ManualSpamActive then
 							Rayfield:Notify({
 								Title    = "Manual Spam",
@@ -2497,7 +2701,6 @@ MiscTab:CreateToggle({
 	end
 })
 
--- Ability ESP
 local Billboard_Labels = {}
 local ConnectionsTable  = {}
 
@@ -2554,7 +2757,6 @@ MiscTab:CreateToggle({
 	end
 })
 
--- Sky / Lighting
 local SkySection = MiscTab:CreateSection("Sky & Lighting")
 
 MiscTab:CreateDropdown({
@@ -2595,7 +2797,6 @@ MiscTab:CreateSlider({ Name = "Time of Day", Range = {0,24}, Increment = 1, Suff
 	Callback = function(value) game.Lighting.ClockTime = value end
 })
 
--- Avatar
 local AvatarSection = MiscTab:CreateSection("Avatar")
 
 MiscTab:CreateToggle({
@@ -2629,7 +2830,6 @@ MiscTab:CreateToggle({
 	end
 })
 
--- Music
 local MusicSection = MiscTab:CreateSection("Music Player")
 
 MiscTab:CreateToggle({ Name = "Enable Music", CurrentValue = false, Flag = "EnableMusic",
@@ -2657,7 +2857,6 @@ MiscTab:CreateDropdown({
 	end
 })
 
--- Ball Info
 local BallSection = MiscTab:CreateSection("Ball Info")
 
 MiscTab:CreateToggle({ Name = "Ball Speed Stats", CurrentValue = false, Flag = "ballSpeedStats",
@@ -2668,12 +2867,13 @@ MiscTab:CreateToggle({ Name = "Ball Speed Stats", CurrentValue = false, Flag = "
 			currentVelValue.Text = "—"
 			peakVelValue.Text    = "—"
 			spamSpeedValue.Text  = "—"
+			autoSpamValue.Text = "OFF"
+			autoSpamValue.TextColor3 = Color3.fromRGB(255, 0, 0)
 			PeakVel = 0
 		end
 	end
 })
 
--- Settings
 local SettingsSection = MiscTab:CreateSection("Settings")
 
 MiscTab:CreateSlider({ Name = "Custom Gravity", Range = {0,500}, Increment = 1, CurrentValue = 196, Flag = "CustomGravity",
@@ -2692,10 +2892,11 @@ LocalPlayer.CharacterAdded:Connect(function(char)
 	if camera then camera.FieldOfView = _config._flags["FieldOfViewValue"] or 70 end
 end)
 
--- ─── Notify load ─────────────────────────────────────────────────────────
-Rayfield:Notify({
-	Title    = "click + Orbital",
-	Content  = "Loaded",
-	Duration = 3,
-	Image    = nil
-})
+if Rayfield then
+	Rayfield:Notify({
+		Title    = "kherby hub",
+		Content  = "Loaded",
+		Duration = 3,
+		Image    = nil
+	})
+end
